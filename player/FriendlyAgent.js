@@ -1,6 +1,6 @@
 // player/FriendlyAgent.js — Tactical AI squadmate. Fights alongside the player:
-// stays close when no contact, pushes toward enemies when spotted, takes cover
-// and suppresses, flanks when the player is pinned.
+// hunts enemies when out of contact, flanks and pushes aggressively in combat,
+// uses cover as a firing position not a hiding hole, retreats only when critical.
 
 import { Vector2 } from '../utils/Vector2.js';
 import { randRange, choice } from '../utils/MathUtils.js';
@@ -10,23 +10,24 @@ import { Shotgun } from '../weapons/Shotgun.js';
 const FRIENDLY_NAMES = ['Price', 'Ghost', 'Soap', 'Gaz', 'Roach', 'Nikolai'];
 
 // Tuning
-const SIGHT_RANGE        = 480;
-const ENGAGE_RANGE       = 440;
-const FOLLOW_RANGE       = 160;
-const FOLLOW_SPEED       = 145;
-const SEEK_SPEED         = 175;
-const SHOOT_INTERVAL_MIN = 0.25;
-const SHOOT_INTERVAL_MAX = 0.55;
-const RESPAWN_DELAY      = 6;
-const COVER_SEEK_DIST    = 200;
-const REPOSITION_INTERVAL_MIN = 3;
-const REPOSITION_INTERVAL_MAX = 5;
-const PATH_REPATH_DIST   = 80;  // re-path if destination moved more than this
-const STUCK_TIME         = 1.0; // seconds before declaring stuck
-const STUCK_MOVE_MIN     = 6;   // pixels moved minimum to not be stuck
-const RETREAT_HEALTH     = 55;  // hp threshold to enter retreat
-const REGEN_RATE         = 12;  // hp/s while retreating
-const REGEN_TARGET       = 90;  // regen stops here
+const SIGHT_RANGE         = 520;   // scan radius for enemy detection
+const OPTIMAL_RANGE       = 320;   // ideal combat distance (close enough to hit, not point-blank)
+const FOLLOW_RANGE        = 160;   // stop following the player at this distance
+const FOLLOW_SPEED        = 145;
+const HUNT_SPEED          = 185;   // sprinting toward a known enemy position
+const ENGAGE_SPEED        = 170;   // moving during a firefight
+const SHOOT_INTERVAL_MIN  = 0.18;
+const SHOOT_INTERVAL_MAX  = 0.42;
+const RESPAWN_DELAY       = 6;
+const RETREAT_HEALTH      = 55;
+const REGEN_RATE          = 12;
+const REGEN_TARGET        = 90;
+const PATH_REPATH_DIST    = 80;
+const STUCK_TIME          = 1.0;
+const STUCK_MOVE_MIN      = 6;
+const FLANK_INTERVAL_MIN  = 3.5;  // how often to pick a new attack angle
+const FLANK_INTERVAL_MAX  = 6.0;
+const HUNT_SCAN_RANGE     = SIGHT_RANGE * 2.5; // see enemies across the whole area
 
 function _angleDiff(a, b) {
   let d = b - a;
@@ -55,23 +56,27 @@ export class FriendlyAgent {
       ? new AssaultRifle({ damage: 22, defaultReserve: Infinity })
       : new Shotgun({ damage: 18, defaultReserve: Infinity });
 
-    // 'follow' | 'advance' | 'engage' | 'flank'
-    this._state        = 'follow';
-    this._target       = null;
-    this._shootTimer   = randRange(SHOOT_INTERVAL_MIN, SHOOT_INTERVAL_MAX);
-    this._coverSpot    = null;
-    this._repositionTimer = randRange(REPOSITION_INTERVAL_MIN, REPOSITION_INTERVAL_MAX);
-    this._stuckTimer   = 0;
-    this._lastPos      = pos.clone();
-    this._respawnTimer = 0;
-    this._insertTimer  = 0;
-    this._coverHoldTimer = 0; // tracks how long we've been sitting in cover
+    // 'follow' | 'hunt' | 'engage' | 'retreat'
+    this._state         = 'follow';
+    this._target        = null;
+    this._shootTimer    = randRange(SHOOT_INTERVAL_MIN, SHOOT_INTERVAL_MAX);
+    this._respawnTimer  = 0;
+    this._insertTimer   = 0;
+    this._flankTimer    = randRange(FLANK_INTERVAL_MIN, FLANK_INTERVAL_MAX);
+    this._flankOffset   = new Vector2(1, 0); // approach vector offset for flanking
+    this._objectivePos  = null;
+
     // Pathfinding
-    this._path         = [];
-    this._pathIndex    = 0;
-    this._pathGoal     = null;
-    this._repathTimer  = 0;
-    this._objectivePos = null; // set by game modes to direct friendly to a point
+    this._path          = [];
+    this._pathIndex     = 0;
+    this._pathGoal      = null;
+    this._repathTimer   = 0;
+
+    // Stuck detection
+    this._stuckTimer    = 0;
+    this._lastPos       = pos.clone();
+    this._navStuckTimer = 0;
+    this._stuckCheckPos = null;
   }
 
   get dead() { return !this.alive && this._respawnTimer <= 0; }
@@ -85,11 +90,7 @@ export class FriendlyAgent {
       return;
     }
 
-    // Insertion delay — stay frozen briefly at match start
-    if (this._insertTimer > 0) {
-      this._insertTimer -= dt;
-      return;
-    }
+    if (this._insertTimer > 0) { this._insertTimer -= dt; return; }
 
     this._target = this._nearestEnemy(game);
 
@@ -98,69 +99,56 @@ export class FriendlyAgent {
     const targetDist = hasTarget ? this.pos.distanceTo(this._target.pos) : Infinity;
     const hasLOS     = hasTarget && game.map.collision.lineOfSight(this.pos, this._target.pos);
 
-    // --- State transitions ---
-    // Retreat: when critically wounded, fall back to the player and regenerate.
+    // --- State machine ---
     if (this.health <= RETREAT_HEALTH && this._state !== 'retreat') {
       this._state = 'retreat';
-      this._coverSpot = null;
     } else if (this._state === 'retreat' && this.health >= REGEN_TARGET) {
-      this._state = 'follow';
+      this._state = hasTarget ? 'engage' : 'follow';
     } else if (this._state !== 'retreat') {
       if (!hasTarget) {
+        // No enemies in range — go to objective or follow player.
         this._state = 'follow';
-      } else if (this._state === 'follow' && (targetDist < SIGHT_RANGE || hasLOS)) {
-        this._state = 'advance';
-        this._pickCover(game);
-        this._coverHoldTimer = 0;
-      } else if (this._state === 'advance' && hasLOS && targetDist < ENGAGE_RANGE) {
+      } else if (hasLOS) {
+        // Direct line of sight → fight immediately.
         this._state = 'engage';
-        this._pickCover(game);
-        this._coverHoldTimer = 0;
-      } else if (this._state === 'engage' && targetDist > SIGHT_RANGE * 1.5) {
-        this._state = 'follow';
+      } else {
+        // Enemy known but no LOS → hunt them down.
+        this._state = 'hunt';
       }
     }
 
-    // Periodic reposition while engaging
-    this._repositionTimer -= dt;
-    if (this._repositionTimer <= 0) {
-      this._repositionTimer = randRange(REPOSITION_INTERVAL_MIN, REPOSITION_INTERVAL_MAX);
-      if (this._state === 'engage' || this._state === 'advance') this._pickCover(game);
+    // Periodically shift the approach angle so they flank rather than charge straight.
+    this._flankTimer -= dt;
+    if (this._flankTimer <= 0) {
+      this._flankTimer = randRange(FLANK_INTERVAL_MIN, FLANK_INTERVAL_MAX);
+      const a = Math.random() * Math.PI * 2;
+      this._flankOffset = new Vector2(Math.cos(a), Math.sin(a));
     }
 
-    // --- Behavior dispatch ---
-    // Objective override: when mode assigns a capture point, march there and
-    // HOLD it. Never self-clear — only the mode system reassigns _objectivePos.
-    // Yields to combat naturally: when hasTarget is true the normal state machine
-    // handles the fight; when the enemy dies hasTarget → false and we return here.
+    // --- Objective override when idle ---
     if (this._objectivePos && this._state === 'follow' && !hasTarget) {
       const atObj = this.pos.distanceTo(this._objectivePos) < 55;
-      if (!atObj) {
-        this._navigateTo(game, this._objectivePos, SEEK_SPEED, dt);
-      }
-      // At objective: stand guard (slow scan rotation), don't follow the player.
-      // Fall through to the shoot block below so we fire at anyone who shows up.
+      if (!atObj) this._navigateTo(game, this._objectivePos, HUNT_SPEED, dt);
     } else {
       switch (this._state) {
         case 'follow':  this._doFollow(dt, game, playerDist); break;
-        case 'advance': this._doAdvance(dt, game, targetDist, hasLOS); break;
+        case 'hunt':    this._doHunt(dt, game); break;
         case 'engage':  this._doEngage(dt, game, targetDist, hasLOS); break;
         case 'retreat': this._doRetreat(dt, game); break;
       }
     }
 
-    // Always shoot if we have LOS regardless of state (except during retreat)
-    if (this._state !== 'retreat' && hasTarget && hasLOS && targetDist < ENGAGE_RANGE) {
+    // Shoot whenever there's a clear shot (all states except retreat).
+    if (this._state !== 'retreat' && hasTarget && hasLOS && targetDist < SIGHT_RANGE) {
       this._faceTarget(dt);
       this._tryShoot(game, dt);
     }
 
-    // Stuck detection — fast recovery
+    // Stuck detection — escape walls quickly.
     this._stuckTimer += dt;
     if (this._stuckTimer >= STUCK_TIME) {
       const moved = this.pos.distanceTo(this._lastPos);
       if (moved < STUCK_MOVE_MIN) {
-        // Teleport to nearest open tile and clear path so we repath next frame
         const col = game.map.collision;
         const t = col.nearestWalkable(col.worldToTile(this.pos.x), col.worldToTile(this.pos.y), 12);
         if (t) this.pos.copy(col.tileCenter(t.tx, t.ty));
@@ -173,80 +161,59 @@ export class FriendlyAgent {
   }
 
   _doFollow(dt, game, playerDist) {
-    if (playerDist < FOLLOW_RANGE * 0.4) return; // tighter dead zone (64px not 96px)
+    if (playerDist < FOLLOW_RANGE * 0.4) return;
     this._navigateTo(game, game.player.pos, FOLLOW_SPEED, dt);
   }
 
-  _doAdvance(dt, game, targetDist, hasLOS) {
-    // Close-range aggression: push directly at the enemy instead of hunting cover.
-    if (hasLOS && targetDist < 200) {
-      this._navigateTo(game, this._target.pos, SEEK_SPEED, dt);
-      this._faceTarget(dt);
-      return;
-    }
-    // If we already have LOS and are close enough, hold position and shoot
-    // rather than charging straight into the enemy.
-    if (hasLOS && targetDist < ENGAGE_RANGE) {
-      this._faceTarget(dt);
-      return;
-    }
-    const dest = this._coverSpot || (this._target ? this._target.pos : null);
-    if (!dest) return;
-    this._navigateTo(game, dest, SEEK_SPEED, dt);
-    if (this._target) this._faceTarget(dt);
+  // Hunt: sprint directly toward the target's last known position.
+  // The instant we get LOS the state flips to 'engage', so this is always transient.
+  _doHunt(dt, game) {
+    if (!this._target) return;
+    // Head for the enemy's position (or lastKnownPos if on the bb).
+    const dest = this._target.bb?.lastKnownPos || this._target.pos;
+    this._navigateTo(game, dest, HUNT_SPEED, dt);
+    this._faceTarget(dt);
   }
 
+  // Engage: close to optimal range using a rotated approach vector so we
+  // naturally flank rather than piling in from the same angle as everyone else.
+  // Never freeze — if we're within range we orbit the enemy while shooting.
   _doEngage(dt, game, targetDist, hasLOS) {
-    // Close-range aggression: skip cover entirely and push toward the enemy.
-    if (hasLOS && targetDist < 200) {
-      this._navigateTo(game, this._target.pos, SEEK_SPEED, dt);
-      this._faceTarget(dt);
-      return;
-    }
+    if (!this._target) return;
+    const tp = this._target.pos;
 
-    // While in LOS and within engage range, push toward the enemy at 60% run
-    // speed (strafe/advance) rather than standing frozen behind cover.
-    if (hasLOS && targetDist < ENGAGE_RANGE && this._target) {
-      this._navigateTo(game, this._target.pos, SEEK_SPEED * 0.6, dt);
+    if (targetDist > OPTIMAL_RANGE * 1.4) {
+      // Too far — sprint toward the target along the flanking offset vector.
+      // The offset shifts the approach angle so we come from a different side
+      // than the player, creating a natural two-pronged pressure.
+      const toEnemy = tp.clone().sub(this.pos).normalize();
+      const combined = toEnemy.clone().add(this._flankOffset.clone().scale(0.4)).normalize();
+      const dest = this.pos.clone().add(combined.scale(OPTIMAL_RANGE));
+      // Clamp to world bounds.
+      dest.x = Math.max(40, Math.min(game.map.worldWidth - 40, dest.x));
+      dest.y = Math.max(40, Math.min(game.map.worldHeight - 40, dest.y));
+      this._navigateTo(game, tp, ENGAGE_SPEED, dt);
+    } else if (!hasLOS) {
+      // In range but no LOS — sidestep to find a shot, navigating toward target.
+      this._navigateTo(game, tp, ENGAGE_SPEED * 0.7, dt);
     }
-
-    if (this._coverSpot) {
-      const toCover = this._coverSpot.distanceTo(this.pos);
-      if (toCover > 22) {
-        this._navigateTo(game, this._coverSpot, SEEK_SPEED, dt);
-        this._coverHoldTimer = 0; // still moving to cover, reset timer
-      } else {
-        // We're at the cover spot — count how long we've been hiding here
-        this._coverHoldTimer += dt;
-        if (this._coverHoldTimer > 1.2) {
-          // Sat in cover too long — always force-advance toward the enemy
-          this._coverHoldTimer = 0;
-          if (this._target) {
-            // Force advance: move directly toward the enemy
-            const step = this._target.pos.clone().sub(this.pos).normalize().scale(COVER_SEEK_DIST * 0.5);
-            this._coverSpot = this.pos.clone().add(step);
-          }
-          this._repositionTimer = randRange(REPOSITION_INTERVAL_MIN, REPOSITION_INTERVAL_MAX);
-        }
-      }
-    }
+    // If we're at optimal range AND have LOS: hold position and shoot (handled
+    // by the global shoot block above). _faceTarget called in the shoot block.
     this._faceTarget(dt);
   }
 
   _doRetreat(dt, game) {
-    // Sprint back to the player and regenerate health.
-    this._navigateTo(game, game.player.pos, SEEK_SPEED * 1.1, dt);
+    this._navigateTo(game, game.player.pos, ENGAGE_SPEED * 1.1, dt);
     if (this.health < REGEN_TARGET) {
       this.health = Math.min(REGEN_TARGET, this.health + REGEN_RATE * dt);
     }
   }
 
-  // Pathfinder-based movement toward goal — avoids walls properly.
   _navigateTo(game, goal, speed, dt) {
     this._repathTimer -= dt;
     const goalMoved = !this._pathGoal || this._pathGoal.distanceTo(goal) > PATH_REPATH_DIST;
-    // Nav-level stuck detection: no movement in 0.5s → scrap path and repath.
-    // Uses _navStuckTimer (separate from the outer wall-escape _stuckTimer).
+
+    // Nav-level stuck detection.
     this._navStuckTimer = (this._navStuckTimer || 0) + dt;
     if (this._navStuckTimer >= 0.5) {
       const moved = this._stuckCheckPos ? this.pos.distanceTo(this._stuckCheckPos) : 999;
@@ -266,7 +233,6 @@ export class FriendlyAgent {
     }
 
     if (!this._path || this._path.length === 0) {
-      // No path found — try direct push (short open spaces)
       const dir = goal.clone().sub(this.pos);
       const len = dir.length();
       if (len > 1) {
@@ -277,7 +243,6 @@ export class FriendlyAgent {
       return;
     }
 
-    // Walk along path waypoints
     while (this._pathIndex < this._path.length) {
       const wp = this._path[this._pathIndex];
       const dx = wp.x - this.pos.x, dy = wp.y - this.pos.y;
@@ -297,39 +262,27 @@ export class FriendlyAgent {
       this._target.pos.x - this.pos.x
     );
     const diff = _angleDiff(this.angle, desired);
-    this.angle += Math.sign(diff) * Math.min(Math.abs(diff), 8 * dt);
+    this.angle += Math.sign(diff) * Math.min(Math.abs(diff), 9 * dt);
   }
 
   _tryShoot(game, dt) {
     this._shootTimer -= dt;
-    if (this._shootTimer <= 0) {
-      this._shootTimer = randRange(SHOOT_INTERVAL_MIN, SHOOT_INTERVAL_MAX);
-      // Re-verify line of sight at fire time — don't shoot into walls
-      if (!this._target || !game.map.collision.lineOfSight(this.pos, this._target.pos)) return;
-      const aimAngle = this.angle + (Math.random() - 0.5) * 0.1;
-      this.weapon.tryFire(game, this, aimAngle);
-    }
+    if (this._shootTimer > 0) return;
+    this._shootTimer = randRange(SHOOT_INTERVAL_MIN, SHOOT_INTERVAL_MAX);
+    if (!this._target || !game.map.collision.lineOfSight(this.pos, this._target.pos)) return;
+    const aimAngle = this.angle + (Math.random() - 0.5) * 0.08;
+    this.weapon.tryFire(game, this, aimAngle);
   }
 
-  _pickCover(game) {
-    const coverSpots = game.map.cover ? game.map.cover.spots : [];
-    if (!coverSpots.length) { this._coverSpot = null; return; }
-    const threatPos = this._target ? this._target.pos : game.map.enemySpawns[0];
-    const spot = game.map.cover.findSpot(this.pos, threatPos, COVER_SEEK_DIST, this);
-    this._coverSpot = spot ? spot.pos.clone() : null;
-  }
-
+  // Scan broadly — not just nearby. Friendlies should be aware of the whole fight.
   _nearestEnemy(game) {
-    // Prefer enemies that are actively targeting the player (threat to player).
-    // Use an effective-distance heuristic: subtract a bonus for player-targeters
-    // within sight range so we intercept them rather than chasing the nearest.
     let best = null, bestScore = Infinity;
-    // Extend scan range when we have an objective — detect enemies on the flag.
-    const scanRange = this._objectivePos ? SIGHT_RANGE * 2.5 : SIGHT_RANGE * 1.5;
+    const scanRange = this._objectivePos ? HUNT_SCAN_RANGE * 1.5 : HUNT_SCAN_RANGE;
     for (const e of game.ai.enemies) {
       if (e.health <= 0) continue;
       const d = this.pos.distanceTo(e.pos);
       if (d > scanRange) continue;
+      // Prioritise enemies actively targeting the player.
       const targetsPlayer = e.bb?.target === game.player || e.bb?.canSee;
       const score = d - (targetsPlayer ? 120 : 0);
       if (score < bestScore) { bestScore = score; best = e; }
@@ -355,16 +308,13 @@ export class FriendlyAgent {
   respawn(game) {
     const spawn = game.map.playerSpawn;
     const col = game.map.collision;
-    // Try random offsets until we land on a walkable tile; fall back to spawn.
     let placed = false;
     for (let attempt = 0; attempt < 20; attempt++) {
       const tx = spawn.x + randRange(-50, 50);
       const ty = spawn.y + randRange(-30, 30);
       if (!col.circleHits(tx, ty, this.radius)) {
-        this.pos.x = tx;
-        this.pos.y = ty;
-        placed = true;
-        break;
+        this.pos.x = tx; this.pos.y = ty;
+        placed = true; break;
       }
     }
     if (!placed) this.pos.copy(spawn);
@@ -372,12 +322,11 @@ export class FriendlyAgent {
     this.alive = true;
     this._state = 'follow';
     this._target = null;
-    this._coverSpot = null;
-    this._coverHoldTimer = 0;
     this._path = [];
     this._pathGoal = null;
     this._respawnTimer = 0;
     this._insertTimer = 0;
+    this._flankTimer = randRange(FLANK_INTERVAL_MIN, FLANK_INTERVAL_MAX);
     game.events.emit('friendly:respawned', { name: this.name });
   }
 }
