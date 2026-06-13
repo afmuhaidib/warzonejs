@@ -1,0 +1,47 @@
+/* style.css — page chrome only; every visual element is drawn on the canvas. */
+
+:root {
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sat: env(safe-area-inset-top, 0px);
+  --sal: env(safe-area-inset-left, 0px);
+  --sar: env(safe-area-inset-right, 0px);
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  /* Use dvh so the canvas fills the true viewport on iOS (no address bar bounce) */
+  height: 100dvh;
+  overflow: hidden;
+  background: #070907;
+  /* Prevent iOS rubber-band scroll */
+  overscroll-behavior: none;
+  /* Prevent pull-to-refresh and other browser touch gestures */
+  touch-action: none;
+  -webkit-overflow-scrolling: none;
+  /* Prevent text selection on long-press */
+  user-select: none;
+  -webkit-user-select: none;
+  /* Prevent iOS callout (copy/paste popup) on long tap */
+  -webkit-touch-callout: none;
+}
+
+#game {
+  display: block;
+  /* Fill including notch / home indicator areas */
+  width: 100%;
+  height: 100%;
+  width: 100dvw;
+  height: 100dvh;
+  cursor: none;
+  /* Block all default touch gestures on the canvas */
+  touch-action: none;
+  /* Prevent iOS double-tap zoom */
+  -webkit-tap-highlight-color: transparent;
+}
