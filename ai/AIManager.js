@@ -28,9 +28,9 @@ const SCORE_PER_KILL = 100;
 // Enemy guns hit softer than the player's (their accuracy is the difficulty
 // lever; raw damage would just feel random). Infinite reserve: AI never dry.
 const LOADOUTS = [
-  { make: () => new AssaultRifle({ damage: 7, defaultReserve: Infinity }), weight: 6 },
-  { make: () => new Shotgun({ damage: 5, defaultReserve: Infinity }), weight: 2 },
-  { make: () => new SniperRifle({ damage: 38, defaultReserve: Infinity }), weight: 1 },
+  { make: () => new AssaultRifle({ damage: 14, defaultReserve: Infinity }), weight: 6 },
+  { make: () => new Shotgun({ damage: 9, defaultReserve: Infinity }), weight: 2 },
+  { make: () => new SniperRifle({ damage: 45, defaultReserve: Infinity }), weight: 1 },
 ];
 
 export class AIManager {

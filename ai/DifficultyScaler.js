@@ -13,11 +13,11 @@ export class DifficultyScaler {
     this.game = game;
     this.level = 0;
     this.params = {
-      reactionTime: 0.55,
-      aimError: 0.085,
-      aggression: 0.35,
-      maxEnemies: 4,
-      respawnDelay: 6,
+      reactionTime: 0.38,
+      aimError: 0.06,
+      aggression: 0.6,
+      maxEnemies: 5,
+      respawnDelay: 4.5,
     };
     this.update(0);
   }
@@ -26,10 +26,10 @@ export class DifficultyScaler {
     const L = clamp(this.game.player.score / SCORE_FOR_MAX, 0, 1);
     this.level = L;
     const p = this.params;
-    p.reactionTime = lerp(0.55, 0.18, L); // seconds of full visibility before they "see" you
-    p.aimError = lerp(0.085, 0.024, L);   // radians of gaussian aim noise
-    p.aggression = lerp(0.35, 1.0, L);    // willingness to push instead of hold cover
-    p.maxEnemies = Math.round(lerp(4, 8, L));
-    p.respawnDelay = lerp(6, 2.2, L);     // seconds between reinforcements
+    p.reactionTime = lerp(0.38, 0.14, L); // seconds of full visibility before they "see" you
+    p.aimError = lerp(0.06, 0.018, L);    // radians of gaussian aim noise
+    p.aggression = lerp(0.6, 1.0, L);     // willingness to push instead of hold cover
+    p.maxEnemies = Math.round(lerp(5, 9, L));
+    p.respawnDelay = lerp(4.5, 1.8, L);   // seconds between reinforcements
   }
 }

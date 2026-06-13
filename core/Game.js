@@ -154,6 +154,13 @@ export class Game {
       this.effects.addShake(0.6);
     });
 
+    // Taking fire cancels an in-progress reload — get caught mid-mag-swap and
+    // you have to re-trigger it. Keeps reloading out in the open risky.
+    this.events.on('player:damaged', () => {
+      const weapon = this.weapons.current;
+      if (weapon && weapon.reloading) weapon.cancelReload();
+    });
+
     this.state = 'menu';
     this._last = 0;
   }

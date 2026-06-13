@@ -229,7 +229,7 @@ export class Enemy {
     }
 
     const toTarget = Math.atan2(aimY - this.pos.y, aimX - this.pos.x);
-    if (Math.abs(angleDiff(this.angle, toTarget)) > 0.18) return; // still bringing the gun around
+    if (Math.abs(angleDiff(this.angle, toTarget)) > 0.28) return; // still bringing the gun around
 
     // Start a new burst when the previous one is exhausted.
     if (bb.burstLeft <= 0) {
@@ -246,7 +246,7 @@ export class Enemy {
     if (this.weapon.tryFire(game, this, aim)) {
       this.lastShotTime = game.time;
       bb.burstLeft--;
-      if (bb.burstLeft <= 0) bb.fireHold = 0.25 + Math.random() * 0.5; // breathe between bursts
+      if (bb.burstLeft <= 0) bb.fireHold = 0.15 + Math.random() * 0.3; // breathe between bursts
     }
   }
 

@@ -67,7 +67,7 @@ export function Engage() {
     const tooFar = dist > e.weapon.range * 0.75;
     // Heavy suppression nails a soldier to their cover — they won't push.
     const pinned = bb.suppression > 0.5;
-    const pushing = !pinned && e.aggression(game) > 0.7 && dist > 160;
+    const pushing = !pinned && e.aggression(game) > 0.5 && dist > 160;
 
     // No usable cover, out of range, or feeling aggressive: advance on the target.
     if (!bb.coverSpot || tooFar || (pushing && bb.canSee)) {

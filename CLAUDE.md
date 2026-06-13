@@ -104,7 +104,7 @@ Per-enemy state lives on the **blackboard** `enemy.bb`. The behavior tree is a m
 
 **Combat barks** (`bb.bark`/`barkTimer`): short callouts tied to real decisions, rendered above the head by `EnemyRenderer`. Set via `Enemy.say(kind, dur)`; won't interrupt an active bark.
 
-**Difficulty** (`DifficultyScaler`): `level = clamp(score / 2500)`. Lerps `reactionTime` 0.55→0.18s, `aimError` 0.085→0.024 rad, `aggression` 0.35→1.0, `maxEnemies` 4→8, `respawnDelay` 6→2.2s.
+**Difficulty** (`DifficultyScaler`): `level = clamp(score / 2500)`. Lerps `reactionTime` 0.38→0.14s, `aimError` 0.06→0.018 rad, `aggression` 0.6→1.0, `maxEnemies` 5→9, `respawnDelay` 4.5→1.8s. Enemies are deliberately threatening from score 0 — the floors are high, not a slow ramp.
 
 ### Friendly AI (`FriendlyAgent`)
 State machine: `follow → advance → engage`, plus `retreat` when health < 55.
