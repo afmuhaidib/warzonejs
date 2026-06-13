@@ -7,41 +7,22 @@ Top-down Call-of-Duty-style browser shooter. Canvas 2D, zero external assets, ze
 
 ## Commands
 ```bash
-# Run locally (ES modules require an HTTP origin)
+# Run locally — ES modules require an HTTP origin, can't open index.html directly
 cd warzoneJS && python3 -m http.server 8000
 # open http://localhost:8000
 
-# Deploy to production
-netlify deploy --prod
-# No build step — the project root is the publish directory.
+# Deploy to production — must run from warzoneJS/, not the parent cod/ folder
+cd warzoneJS && netlify deploy --prod
+# No build step. netlify.toml sets publish = "."
 ```
 
-**In-game debug:** Press **F1** for the AI debug overlay (vision cones, paths, states, squad roles). `window.__game` is exposed on localhost only.
+**In-game debug:** Press **F1** for the AI debug overlay (vision cones, paths, states, squad roles, personalities, suppression). `window.__game` is exposed on localhost only.
 
 ## Architecture
 
 ### Layer rules
 - **Lower layers never import from higher layers.** Cycles go through `core/EventBus` or the `game` context object.
-- `core/Game.js` is the composition root. It owns one instance of every subsystem and passes `game` into all `update(dt, game)` / `draw(ctx, game)` calls.
-
-### Key directories
-| Directory | What lives here |
-|-----------|----------------|
-| `core/` | Game loop, Canvas, InputManager, TouchInput, EventBus, Camera |
-| `world/` | Map, MapGenerator, CollisionMap, CoverSystem, MapRenderer |
-| `player/` | Player entity, PlayerController, PlayerCombat, PlayerHUD, FriendlyAgent |
-| `ai/` | AIManager, Enemy, BehaviorTree, behaviors/*, Perception, Pathfinder, FlowField, SquadCoordinator, DifficultyScaler |
-| `weapons/` | Weapon base, AK47, AssaultRifle, Shotgun, SniperRifle, BulletPool, WeaponManager, WeaponPickup |
-| `combat/` | GrenadeSystem, FlashbangSystem, SmokeGrenade, KnifeSystem, ExplosionSystem |
-| `effects/` | HitSpark, MuzzleFlash, EffectsManager |
-| `audio/` | AudioEngine, SpatialAudio, GunSounds, FootstepSounds, UIAudio |
-| `equipment/` | EquipmentManager, Claymore, AmmoCrate, MedKit, DeadSilence |
-| `killstreaks/` | KillstreakManager, UAVSystem, AirstrikeSytem, SentryGun |
-| `modes/` | GameModeManager, TeamDeathmatch, FreeForAll, Domination, CaptureTheFlag, SearchAndDestroy |
-| `progression/` | XPSystem, RankSystem, ChallengeSystem |
-| `replay/` | ReplayBuffer, KillCamPlayer, SpectateSystem |
-| `ui/` | UIManager, MainMenu, KillFeed, DeathScreen, PauseMenu, LoadoutEditor |
-| `utils/` | Vector2, MathUtils, ObjectPool, Grid, DebugOverlay |
+- `core/Game.js` is the composition root — the only module allowed to import upward. It owns one instance of every subsystem and passes `game` into all `update(dt, game)` / `draw(ctx, game)` calls.
 
 ### `game` context fields
 ```
@@ -51,17 +32,43 @@ game.player      game.weapons     game.bullets     game.pickups
 game.effects     game.ai          game.combat      game.equipment
 game.killstreaks game.modes       game.progression game.replay
 game.difficulty  game.loadout     game.debug       game.time
-game.state       // 'playing' | 'paused' | 'dead'
+game.viewmodel   game.audio       game.movement
+game.state       // 'menu' | 'playing' | 'paused' | 'dead' | 'gameover'
 game.friendlies  // FriendlyAgent[]
 ```
 
+`game.movement` is a sub-object: `{ stamina, slide, prone, lean, mantle }` — each a system that reads/writes `game.player`.
+
+`game.combat` is a sub-object: `{ explosions, grenades, flash, smoke, knife }`.
+
+`game.progression` is a sub-object: `{ rank, xp, unlocks, challenges, attachments }`.
+
+`game.replay` is a sub-object: `{ buffer, killcam, spectate }`.
+
+### Game state machine
+```
+'menu' ──(start)──▶ 'playing' ──(Esc)──▶ 'paused' ──(Esc)──▶ 'playing'
+                        │                                          ▲
+                    (player dies)                           (respawn delay)
+                        ▼                                          │
+                     'dead' ─────────────────────────────────────-┘
+                        │
+                    (mode ends)
+                        ▼
+                   'gameover'
+```
+`update()` runs for all states except `'paused'`. Combat systems only tick in `'playing'`. AI and bullets tick whenever `state !== 'menu' && state !== 'gameover'` (`inMatch`).
+
 ### Frame order
-1. Player: controller → combat → weapon manager
-2. Pickups
-3. AI: squad coordinator → per-enemy (perception → behavior tree) → separation → spawning
-4. Bullets (move + collide)
-5. Effects + camera
-6. Render: world → entities → bullets → effects → UI
+1. Movement systems (stamina → slide → prone → lean → mantle)
+2. Player: controller → combat → weapon manager
+3. Combat systems (explosions, grenades, flash, smoke, knife)
+4. Killstreaks, viewmodel, equipment
+5. Pickups
+6. AI: squad coordinator → per-enemy (perception → behavior tree) → separation → spawning
+7. Bullets (move + collide)
+8. Effects + camera
+9. Render: world → entities → bullets → effects → UI → touch controls → debug
 
 ## AI system
 
@@ -77,7 +84,7 @@ Per-enemy state lives on the **blackboard** `enemy.bb`. The behavior tree is a m
 - Hearing: gunshots/sprinting emit `'sound'` events → primes awareness to 0.35, sets `alertPos`.
 - Squad radio: `'enemy:spotted'` propagates to squadmates + enemies within 320px.
 
-**Squad tactics** (`SquadCoordinator`): best sight line → `suppress`, next → `flank` (side 1), third → `flank` (opposite side, pincer), rest → plain engage. Re-dealt every 1s.
+**Squad tactics** (`SquadCoordinator`): best sight line → `suppress`, next → natural `Flanker` archetype preferred → `flank` (side 1), third → `flank` (opposite side, pincer), rest → plain engage. Re-dealt every 1s.
 
 **Aim tracking**: `bb.trackTime` accumulates while LOS holds; reduces aim error up to 35% after 2s of continuous sight.
 
@@ -89,32 +96,32 @@ Per-enemy state lives on the **blackboard** `enemy.bb`. The behavior tree is a m
 
 **Predictive aim**: `tryShoot` leads moving targets by bullet flight time (`dist / bulletSpeed`), scaled by `personality.leadSkill` and tracking duration. Stationary or out-of-sight targets aren't led.
 
-**Suppression** (`bb.suppression`, 0..1): a player round passing within `SUPPRESS_RADIUS` (42px, `weapons/Bullet.js`) without hitting calls `enemy.onSuppressed`. Suppression widens aim (`+supp*0.16` rad), slows awareness fill in Perception, and — above 0.5 — pins the soldier in cover (no pushing/peeking in Engage). Decays at `SUPPRESS_DECAY` (0.55/s). `suppressResist` (personality) divides the intake. This is what lets the player *suppress* enemies with volume of fire.
+**Suppression** (`bb.suppression`, 0..1): a player round passing within `SUPPRESS_RADIUS` (42px, `weapons/Bullet.js`) without hitting calls `enemy.onSuppressed`. Suppression widens aim (`+supp*0.16` rad), slows awareness fill in Perception, and — above 0.5 — pins the soldier in cover (no pushing/peeking in Engage). Decays at `SUPPRESS_DECAY` (0.55/s). `suppressResist` (personality) divides the intake.
 
-**Tactical reload**: `Enemy.reloadInCover` reloads when the mag hits empty, or when behind cover with no LOS and the mag is <35% — instead of dry-firing or reloading mid-duel. AI reserve is Infinite.
+**Tactical reload**: `Enemy.reloadInCover` reloads when the mag hits empty, or when behind cover with no LOS and the mag is <35%. AI reserve is Infinite.
 
 **Morale** (`AIManager.squadMorale`): when an enemy dies, survivors within 420px (or same squad) react by `bravery` roll — brave ones set `bb.avengeUntil` (aggression spike that overrides Retreat for 4.5s), timid ones take a suppression hit. Everyone gets an `alertPos` toward the loss.
 
-**Combat barks** (`bb.bark`/`barkTimer`): short callouts (Contact/Reloading/Frag out/Flanking/Suppressing/Man down/Falling back/Pinned/Avenge) tied to real decisions, rendered above the head by `EnemyRenderer`. Set via `Enemy.say(kind, dur)`; won't interrupt an active bark.
+**Combat barks** (`bb.bark`/`barkTimer`): short callouts tied to real decisions, rendered above the head by `EnemyRenderer`. Set via `Enemy.say(kind, dur)`; won't interrupt an active bark.
 
 **Difficulty** (`DifficultyScaler`): `level = clamp(score / 2500)`. Lerps `reactionTime` 0.55→0.18s, `aimError` 0.085→0.024 rad, `aggression` 0.35→1.0, `maxEnemies` 4→8, `respawnDelay` 6→2.2s.
 
 ### Friendly AI (`FriendlyAgent`)
 State machine: `follow → advance → engage`, plus `retreat` when health < 55.
 - **Retreat + regen**: sprints back to player, heals 12 HP/s up to 90 HP, then re-enters combat.
-- **Smart targeting**: scores enemies by effective distance minus 120px bonus for enemies actively targeting the player — intercepts threats to you first.
-- Cover-hold timeout: 1.2s before force-advancing.
+- **Smart targeting**: scores enemies by effective distance minus 120px bonus for enemies actively targeting the player.
 
 ## Weapons
-- **Enemy drops:** Always AK-47 (changed from random weapon drop)
+
+Every weapon is a config object passed to `new Weapon(cfg, overrides)`. Key fields:
+```js
+{ name, shortName, auto, damage, fireRate, magSize, defaultReserve, reloadTime,
+  spread, pellets, bulletSpeed, range, barrel, soundRadius, shake, flashSize, tracerLen, color }
+```
+- **Enemy drops:** Always AK-47
 - **Damage model:** Enemy weapons deal reduced damage (difficulty lever is aim accuracy, not raw damage)
 - **Burst fire:** Enemies fire 3–6 round bursts with pauses between
-
-## Touch / iPhone notes
-- `TouchInput.js` handles all mobile input. Ghost buttons always visible. Safe-area cached at resize.
-- AudioContext unlocked via `touchstart` on `window` (passive) — iOS suppresses `pointerdown` when canvas uses `preventDefault`
-- Crosshair renders at screen center on touch (not at mouse position)
-- Canvas uses `document.documentElement.clientWidth/Height` (excludes iOS browser chrome)
+- `shortName` is used by `HeadshotSystem` for per-weapon headshot multipliers and by `Bullet` for penetration logic (`'SNP'` penetrates natively)
 
 ## EventBus events
 | Event | Emitted by | Consumed by |
@@ -128,12 +135,19 @@ State machine: `follow → advance → engage`, plus `retreat` when health < 55.
 | `weapon:fired` | Weapon.tryFire | AudioEngine, ViewmodelSystem |
 | `weapon:reload` | Weapon.startReload | AudioEngine, ReloadSounds |
 | `friendly:died` | FriendlyAgent.die | KillFeed |
+| `hit` | Bullet.update | XPSystem, HitMarker UI |
 
 ## Design constants
 - Tile size: **40px** · Map: **64×48 tiles** (2560×1920 world)
 - `WALL` blocks movement + bullets + vision. `CRATE/BARRIER` blocks movement + bullets but not vision (peeking cover). `ROCK` blocks everything.
-- Teams: `'player'` vs `'enemy'` — no friendly fire
+- Teams: `'player'` vs `'enemy'` — no friendly fire. FFA mode uses per-enemy team IDs (`ffa_N`).
 - `window.__game` only exposed on localhost (blocked in production)
+
+## Touch / mobile notes
+- `TouchInput.js` handles all mobile input. Ghost buttons always visible. Safe-area cached at resize.
+- AudioContext unlocked via `touchstart` on `window` (passive) — iOS suppresses `pointerdown` when canvas uses `preventDefault`
+- Crosshair renders at screen center on touch (not at mouse position)
+- Canvas uses `document.documentElement.clientWidth/Height` (excludes iOS browser chrome)
 
 ## Key tuning locations
 
@@ -161,9 +175,10 @@ State machine: `follow → advance → engage`, plus `retreat` when health < 55.
 ## Common tasks
 
 ### Add a new weapon
-1. Create `weapons/MyGun.js` extending `Weapon` with a def object
+1. Create `weapons/MyGun.js` — export a config object and a class extending `Weapon`
 2. Add to `LOADOUTS` in `ai/AIManager.js` with a weight
 3. Add to `WeaponManager` pickup/switch logic if player-usable
+4. Add a `shortName` entry to `HeadshotSystem` if the headshot multiplier should differ
 
 ### Add a new AI behavior
 1. Create `ai/behaviors/MyBehavior.js` returning `new Action((e, game, dt) => { ... return RUNNING|SUCCESS|FAILURE; })`
@@ -176,3 +191,7 @@ State machine: `follow → advance → engage`, plus `retreat` when health < 55.
 ### Add a new killstreak
 1. Create `killstreaks/MyStreak.js`
 2. Register in `killstreaks/KillstreakManager.js`
+
+### Add a new player movement system
+1. Create `player/MySystem.js` with an `update(dt)` method that reads/writes `game.player`
+2. Instantiate in `Game.js` under `this.movement` and call in the `'playing'` update block
