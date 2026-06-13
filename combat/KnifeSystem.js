@@ -64,7 +64,7 @@ export class KnifeSystem {
             e.damage(this.game, DAMAGE, player.pos, player);
             this.game.events.emit('hit', {
               target: e, amount: DAMAGE, headshot: false,
-              killed, pos: e.pos.clone(), byTeam: 'player', melee: true,
+              killed, pos: e.pos.clone(), byTeam: 'player', byPlayer: true, melee: true,
             });
             break;
           }

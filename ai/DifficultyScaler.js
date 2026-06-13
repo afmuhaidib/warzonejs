@@ -26,9 +26,11 @@ export class DifficultyScaler {
     const L = clamp(this.game.player.score / SCORE_FOR_MAX, 0, 1);
     this.level = L;
     const p = this.params;
-    p.reactionTime = lerp(0.38, 0.14, L); // seconds of full visibility before they "see" you
-    p.aimError = lerp(0.06, 0.018, L);    // radians of gaussian aim noise
-    p.aggression = lerp(0.6, 1.0, L);     // willingness to push instead of hold cover
+    // High floors: every soldier (enemy AND friendly — they share this scaler)
+    // is smart and lethal from score 0. The curve still sharpens with score.
+    p.reactionTime = lerp(0.30, 0.12, L); // seconds of full visibility before they "see" you
+    p.aimError = lerp(0.05, 0.016, L);    // radians of gaussian aim noise
+    p.aggression = lerp(0.75, 1.0, L);    // willingness to push instead of hold cover
     p.maxEnemies = Math.round(lerp(5, 9, L));
     p.respawnDelay = lerp(4.5, 1.8, L);   // seconds between reinforcements
   }

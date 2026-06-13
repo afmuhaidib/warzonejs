@@ -12,7 +12,7 @@ export class KillFeed {
     this.lines = [];
 
     game.events.on('enemy:killed', ({ enemy, by }) => {
-      const who = by && by.team === 'player' ? 'YOU' : (by ? by.name : '???');
+      const who = by === game.player ? 'YOU' : (by ? by.name : '???');
       this.push(`${who}  ▸  ${enemy.name}`, '#9fe09a');
     });
     game.events.on('player:died', ({ by }) => {

@@ -24,6 +24,11 @@ export class SquadCoordinator {
   /** Spread the contact to nearby enemies and refresh the shared flow field. */
   propagate(spotter, pos) {
     const ai = this.game.ai;
+    // Friendlies share the enemy brain (and its Perception), so they emit the
+    // same 'enemy:spotted' event. Only genuine enemy contacts may propagate
+    // across the enemy squad radio — otherwise a teammate spotting a hostile
+    // would hand the enemy team free intel.
+    if (!ai.enemies.includes(spotter)) return;
     ai.flowField.compute(pos);
     for (const e of ai.enemies) {
       if (e === spotter || e.health <= 0) continue;

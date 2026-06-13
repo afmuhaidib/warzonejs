@@ -96,7 +96,8 @@ export class Bullet {
       if (this.shooter && this.shooter.shotsHit !== undefined) this.shooter.shotsHit++;
       game.events.emit('hit', {
         target: hitEntity, amount: dmg, headshot, killed,
-        pos: { x: hx, y: hy }, byTeam: this.team, weapon: this.weaponKind,
+        pos: { x: hx, y: hy }, byTeam: this.team,
+        byPlayer: this.shooter === game.player, weapon: this.weaponKind,
       });
       game.effects.hitSpark(hx, hy, headshot ? '#ffb066' : '#c44232', headshot ? 9 : 6);
       this.dead = true;

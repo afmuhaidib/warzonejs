@@ -11,8 +11,8 @@ export class HitMarker {
     this.kill = false;
     this.headshot = false;
 
-    game.events.on('hit', ({ byTeam, killed, headshot }) => {
-      if (byTeam !== 'player') return;
+    game.events.on('hit', ({ byPlayer, killed, headshot }) => {
+      if (!byPlayer) return; // only the player's own hits mark — not friendlies'
       this.kill = killed;
       this.headshot = headshot;
       this.max = killed ? 0.32 : 0.16;

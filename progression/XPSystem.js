@@ -17,18 +17,24 @@ export class XPSystem {
     this.matchLog = [];     // [{reason, amount, count}] aggregated
     this.matchTotal = 0;
 
-    game.events.on('hit', ({ killed, headshot, byTeam, melee }) => {
-      if (byTeam !== 'player' || !killed) return;
+    game.events.on('hit', ({ killed, headshot, byPlayer, melee }) => {
+      if (!byPlayer || !killed) return;
       if (headshot) this.award(HEADSHOT_BONUS, 'HEADSHOT');
       if (melee) this.award(MELEE_BONUS, 'MELEE KILL');
     });
 
     game.events.on('enemy:killed', ({ enemy, by }) => {
-      if (!by || by.team !== 'player') return;
-      this.award(by.name === 'Sentry' ? SENTRY_KILL_XP : KILL_XP,
-        by.name === 'Sentry' ? 'SENTRY KILL' : 'KILL');
-      // Assist: player damaged this enemy but the sentry (or blast) finished it.
-      if (by !== game.player && enemy.hitByPlayer) this.award(ASSIST_XP, 'ASSIST');
+      if (!by) return;
+      if (by === game.player) {
+        this.award(KILL_XP, 'KILL');
+      } else if (by.name === 'Sentry') {
+        // The player's deployed sentry — credit the player.
+        this.award(SENTRY_KILL_XP, 'SENTRY KILL');
+      } else if (by.team === game.player.team && enemy.hitByPlayer) {
+        // A squadmate finished an enemy the player had already hit → assist.
+        // (A friendly kill the player never touched earns the player nothing.)
+        this.award(ASSIST_XP, 'ASSIST');
+      }
     });
 
     game.events.on('mode:objective', ({ type, xp }) => {

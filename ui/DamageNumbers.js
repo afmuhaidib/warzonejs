@@ -7,8 +7,8 @@
 export class DamageNumbers {
   constructor(game) {
     this.game = game;
-    game.events.on('hit', ({ amount, headshot, killed, pos, byTeam }) => {
-      if (byTeam !== 'player' || !pos) return;
+    game.events.on('hit', ({ amount, headshot, killed, pos, byPlayer }) => {
+      if (!byPlayer || !pos) return;
       game.effects.spawn(new FloatingNumber(pos.x, pos.y, Math.round(amount), headshot, killed));
     });
   }

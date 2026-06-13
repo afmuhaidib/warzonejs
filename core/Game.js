@@ -49,6 +49,7 @@ import { GameModeManager } from '../modes/GameModeManager.js';
 import { EquipmentManager } from '../equipment/EquipmentManager.js';
 import { SpawnIntro } from '../effects/SpawnIntro.js';
 import { TouchInput } from './TouchInput.js';
+import { NetManager } from '../net/NetManager.js';
 
 const RESPAWN_DELAY = 3.0;
 
@@ -144,6 +145,9 @@ export class Game {
       ? new TouchInput(this.canvas)
       : null;
     if (this.touch) this.touch.game = this;
+
+    // --- networking (opt-in; inert in single-player) ---
+    this.net = new NetManager(this);
 
     // --- misc ---
     this.killstreaks = new KillstreakManager(this);
@@ -242,6 +246,7 @@ export class Game {
     }
 
     if (inMatch) {
+      this.net.update(dt);
       this.ai.update(dt);
       this.bullets.update(dt);
       this.effects.update(dt);
@@ -281,6 +286,7 @@ export class Game {
       this.modes.drawWorld(ctx);
       for (const pickup of this.pickups) pickup.draw(ctx, this);
       this.ai.draw(ctx, this);
+      this.net.draw(ctx);
       if (this.player.alive) PlayerRenderer.draw(ctx, this.player, this);
       this.bullets.draw(ctx);
       this.effects.draw(ctx);

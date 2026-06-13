@@ -25,7 +25,9 @@ export class KillstreakManager {
     this.sentries = [];
 
     game.events.on('enemy:killed', ({ by }) => {
-      if (!by || by.team !== 'player') return;
+      // Only the player's own kills build the streak — not friendlies' (they
+      // share team 'player') nor the player's own deployed sentry.
+      if (by !== game.player) return;
       this.streak++;
       for (const s of STREAKS) {
         if (this.streak === s.kills && !this.earned.has(s.id)) {

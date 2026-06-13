@@ -35,7 +35,19 @@ game.difficulty  game.loadout     game.debug       game.time
 game.viewmodel   game.audio       game.movement
 game.state       // 'menu' | 'playing' | 'paused' | 'dead' | 'gameover'
 game.friendlies  // FriendlyAgent[]
+game.net         // NetManager (opt-in P2P; inert in single-player)
+game.remotePlayers // RemotePlayer[] (human friends; empty in single-player)
 ```
+
+### Multiplayer (`net/NetManager.js`)
+"Play with friends" over **WebRTC P2P via PeerJS** (lazy-loaded from CDN; the
+single-player bundle stays zero-dependency). The lobby lives in `MainMenu` under
+OPPONENT ▸ ONLINE. A short room code seeds the deterministic map so every peer
+builds the identical world, and each peer broadcasts its player state ~20 Hz so
+friends render as live avatars (`net/RemotePlayer.js`). **Everything is gated by
+`game.net?.…`** — single-player update/draw paths are unchanged. v1 is presence
+co-op (each peer simulates its own enemies); the host-authoritative shared-combat
+roadmap is in `TEMP_ISSUES_AND_MULTIPLAYER_PLAN.md`.
 
 `game.movement` is a sub-object: `{ stamina, slide, prone, lean, mantle }` — each a system that reads/writes `game.player`.
 
@@ -107,9 +119,22 @@ Per-enemy state lives on the **blackboard** `enemy.bb`. The behavior tree is a m
 **Difficulty** (`DifficultyScaler`): `level = clamp(score / 2500)`. Lerps `reactionTime` 0.38→0.14s, `aimError` 0.06→0.018 rad, `aggression` 0.6→1.0, `maxEnemies` 5→9, `respawnDelay` 4.5→1.8s. Enemies are deliberately threatening from score 0 — the floors are high, not a slow ramp.
 
 ### Friendly AI (`FriendlyAgent`)
-State machine: `follow → advance → engage`, plus `retreat` when health < 55.
-- **Retreat + regen**: sprints back to player, heals 12 HP/s up to 90 HP, then re-enters combat.
-- **Smart targeting**: scores enemies by effective distance minus 120px bonus for enemies actively targeting the player.
+**`FriendlyAgent extends Enemy`** — friendlies and enemies share ONE brain
+(same `Perception` + behavior tree + predictive aim + suppression + cover use +
+grenades + barks). They used to be a separate, dumber state machine; that's why
+the two sides behaved differently. Now the *only* differences are team-specific:
+- team `'player'`, callsign, friendly respawn near the player.
+- **Cohesion leash**: out of combat they point `bb.investigatePos` at the player
+  (LEASH_RANGE 360) so the squad stays near you instead of scattering.
+- 120 max HP and a heal-while-retreating perk (REGEN_RATE) for co-op survival.
+- `die()` emits `friendly:died` (not `enemy:killed`) and respawns after 6s.
+
+Because friendlies reuse the shared `Perception`, they also emit `enemy:spotted`;
+`SquadCoordinator.propagate` guards against non-enemy spotters so a teammate's
+contact never leaks across the enemy radio. Player-feedback systems (hitmarkers,
+damage numbers, XP, challenges, killstreak counter, viewmodel kick, centered gun
+audio, crosshair bloom) gate on **`byPlayer`/`=== game.player`**, never on team
+`'player'`, so friendlies (same team) don't trigger them.
 
 ## Weapons
 
@@ -118,7 +143,7 @@ Every weapon is a config object passed to `new Weapon(cfg, overrides)`. Key fiel
 { name, shortName, auto, damage, fireRate, magSize, defaultReserve, reloadTime,
   spread, pellets, bulletSpeed, range, barrel, soundRadius, shake, flashSize, tracerLen, color }
 ```
-- **Enemy drops:** Always AK-47
+- **All NPCs use the AK platform** — enemy `LOADOUTS` and `FriendlyAgent` both use `AK47`; drops are AK-47 too.
 - **Damage model:** Enemy weapons deal reduced damage (difficulty lever is aim accuracy, not raw damage)
 - **Burst fire:** Enemies fire 3–6 round bursts with pauses between
 - `shortName` is used by `HeadshotSystem` for per-weapon headshot multipliers and by `Bullet` for penetration logic (`'SNP'` penetrates natively)

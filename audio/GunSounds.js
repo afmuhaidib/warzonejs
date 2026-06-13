@@ -10,9 +10,11 @@ export class GunSounds {
     this.engine = engine;
     this.spatial = spatial;
 
-    game.events.on('weapon:fired', ({ weapon, pos, team, silenced }) => {
-      const out = team === 'player' ? null : this.spatial.at(pos, 0.7);
-      if (team !== 'player' && !out) return; // out of earshot
+    game.events.on('weapon:fired', ({ weapon, pos, byPlayer, silenced }) => {
+      // Only the real player's gun plays centered at full volume; everyone else
+      // (enemies AND friendlies, who now share team 'player') is spatialised.
+      const out = byPlayer ? null : this.spatial.at(pos, 0.7);
+      if (!byPlayer && !out) return; // out of earshot
       this.shot(weapon.shortName, silenced, out);
     });
   }

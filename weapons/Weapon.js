@@ -90,7 +90,7 @@ export class Weapon {
     if (this.flashSize > 0) game.effects.muzzleFlash(mx, my, angle, this.flashSize);
     game.effects.tracer(mx, my, angle, this.tracerLen);
     game.effects.shellCasing(shooter.pos.x, shooter.pos.y, angle);
-    if (shooter.team === 'player') game.effects.addShake(this.shake * (this.recoilMult || 1));
+    if (shooter === game.player) game.effects.addShake(this.shake * (this.recoilMult || 1));
 
     game.events.emit('sound', {
       pos: shooter.pos.clone(),
@@ -99,10 +99,10 @@ export class Weapon {
     });
     game.events.emit('weapon:fired', {
       weapon: this, pos: shooter.pos.clone(), angle,
-      team: shooter.team, silenced: !!this.silenced,
+      team: shooter.team, byPlayer: shooter === game.player, silenced: !!this.silenced,
     });
 
-    if (this.ammo === 0) this.startReload(shooter.team === 'player' ? game : undefined);
+    if (this.ammo === 0) this.startReload(shooter === game.player ? game : undefined);
     return true;
   }
 

@@ -11,10 +11,7 @@ import { EnemyRenderer } from './EnemyRenderer.js';
 import { Pathfinder } from './Pathfinder.js';
 import { FlowField } from './FlowField.js';
 import { SquadCoordinator } from './SquadCoordinator.js';
-import { AssaultRifle } from '../weapons/AssaultRifle.js';
 import { AK47 } from '../weapons/AK47.js';
-import { Shotgun } from '../weapons/Shotgun.js';
-import { SniperRifle } from '../weapons/SniperRifle.js';
 import { WeaponPickup } from '../weapons/WeaponPickup.js';
 import { FriendlyAgent } from '../player/FriendlyAgent.js';
 import { FriendlyRenderer } from '../player/FriendlyRenderer.js';
@@ -25,12 +22,11 @@ const MIN_SPAWN_DIST = 650;   // never spawn within this range of the player
 const DROP_CHANCE = 0.45;
 const SCORE_PER_KILL = 100;
 
-// Enemy guns hit softer than the player's (their accuracy is the difficulty
-// lever; raw damage would just feel random). Infinite reserve: AI never dry.
+// Every NPC runs the AK platform. Enemy guns hit softer than the player's
+// (their accuracy is the difficulty lever; raw damage would just feel random).
+// Infinite reserve: AI never dry.
 const LOADOUTS = [
-  { make: () => new AssaultRifle({ damage: 14, defaultReserve: Infinity }), weight: 6 },
-  { make: () => new Shotgun({ damage: 9, defaultReserve: Infinity }), weight: 2 },
-  { make: () => new SniperRifle({ damage: 45, defaultReserve: Infinity }), weight: 1 },
+  { make: () => new AK47({ damage: 15, defaultReserve: Infinity }), weight: 1 },
 ];
 
 export class AIManager {
@@ -138,8 +134,11 @@ export class AIManager {
   }
 
   onSound({ pos, radius, team }) {
-    for (const e of this.enemies) {
-      // Enemies don't react to their own team's gunfire — only hostile sounds.
+    // Both teams hear gunfire — friendlies share the same Perception now.
+    const all = this.enemies.concat(this.game.friendlies || []);
+    for (const e of all) {
+      if (e.health <= 0 || !e.perception) continue;
+      // Soldiers don't react to their own team's gunfire — only hostile sounds.
       if (e.team === team) continue;
       if (e.pos.distanceTo(pos) < radius) e.perception.hear(pos, this.game);
     }

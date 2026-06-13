@@ -12,8 +12,13 @@ export class PlayerHUD {
     this.game = game;
     this.recoilBloom = 0;
     game.events.on('sound', (s) => {
-      // Crosshair kick on the player's own shots.
-      if (s.team === 'player' && s.radius > 200) this.recoilBloom = Math.min(this.recoilBloom + 3, 12);
+      // Crosshair kick on the player's OWN shots only. Friendlies share team
+      // 'player', so gate on the sound originating at the player's position
+      // (their gunfire emits at their own pos, far from the player).
+      if (s.team === 'player' && s.radius > 200 &&
+          s.pos && s.pos.distanceTo(game.player.pos) < 40) {
+        this.recoilBloom = Math.min(this.recoilBloom + 3, 12);
+      }
     });
   }
 

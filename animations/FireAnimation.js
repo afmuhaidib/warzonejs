@@ -12,8 +12,8 @@ export class FireAnimation {
     this.kickBack = new Spring(160, 16); // px toward the player
     this.kickUp = new Spring(140, 13);   // rotation kick
 
-    game.events.on('weapon:fired', ({ weapon, team }) => {
-      if (team !== 'player') return;
+    game.events.on('weapon:fired', ({ weapon, byPlayer }) => {
+      if (!byPlayer) return; // friendlies share team 'player' — only the real player kicks the viewmodel
       const k = weapon.shake * (weapon.recoilMult || 1);
       this.kickBack.kick(-k * 900);
       this.kickUp.kick(-k * 26);

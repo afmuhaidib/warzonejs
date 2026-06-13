@@ -8,8 +8,8 @@ export class UIAudio {
     this.engine = engine;
     const e = engine;
 
-    game.events.on('hit', ({ byTeam, killed, headshot }) => {
-      if (byTeam !== 'player') return;
+    game.events.on('hit', ({ byPlayer, killed, headshot }) => {
+      if (!byPlayer) return;
       if (killed) {
         e.osc({ type: 'square', freq: headshot ? 880 : 660, dur: 0.07, gain: 0.1 });
         e.osc({ type: 'square', freq: headshot ? 1320 : 880, dur: 0.09, gain: 0.08, when: e.now + 0.06 });

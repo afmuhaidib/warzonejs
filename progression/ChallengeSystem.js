@@ -6,17 +6,17 @@
 
 const DEFS = [
   { id: 'headhunter', name: 'Headhunter', desc: '10 headshot kills', goal: 10, xp: 500,
-    on: 'hit', test: (e) => e.byTeam === 'player' && e.killed && e.headshot },
+    on: 'hit', test: (e) => e.byPlayer && e.killed && e.headshot },
   { id: 'bladework', name: 'Bladework', desc: '3 knife kills', goal: 3, xp: 400,
-    on: 'hit', test: (e) => e.byTeam === 'player' && e.killed && e.melee },
+    on: 'hit', test: (e) => e.byPlayer && e.killed && e.melee },
   { id: 'marksman', name: 'Marksman', desc: '15 sniper kills', goal: 15, xp: 600,
-    on: 'hit', test: (e) => e.byTeam === 'player' && e.killed && e.weapon === 'SNP' },
+    on: 'hit', test: (e) => e.byPlayer && e.killed && e.weapon === 'SNP' },
   { id: 'pointman', name: 'Pointman', desc: '8 objective plays', goal: 8, xp: 450,
     on: 'mode:objective', test: () => true },
   { id: 'rampage', name: 'Rampage', desc: 'Earn 5 killstreak rewards', goal: 5, xp: 500,
     on: 'killstreak:earned', test: () => true },
   { id: 'exterminator', name: 'Exterminator', desc: '50 kills', goal: 50, xp: 700,
-    on: 'enemy:killed', test: (e) => e.by && e.by.team === 'player' },
+    on: 'enemy:killed', test: (e, game) => e.by === game.player },
   { id: 'demolition', name: 'Demolition', desc: '5 explosive kills', goal: 5, xp: 450,
     on: 'enemy:killed', test: (e, game) => e.by === game.player && !!e.explosive },
 ];

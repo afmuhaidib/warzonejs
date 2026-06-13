@@ -30,8 +30,10 @@ export class ExplosionSystem {
     game.events.emit('explosion', { pos: pos.clone(), radius });
     game.events.emit('sound', { pos: pos.clone(), radius: 900, team: source ? source.team : 'none' });
 
-    // Damage + knockback for every entity in range.
+    // Damage + knockback for every entity in range. Friendlies are included so
+    // enemy grenades can actually hurt them (they used to be blast-immune).
     const targets = [...game.ai.enemies];
+    for (const f of (game.friendlies || [])) if (f.alive) targets.push(f);
     if (game.player.alive) targets.push(game.player);
     for (const t of targets) {
       const d = t.pos.distanceTo(pos);

@@ -24,9 +24,10 @@ export class MainMenu {
     this.buttons  = [];
 
     // Multiplayer flow state.
-    this._step     = 'mode';    // 'mode' | 'opponent' | 'relation' | 'teamSize'
+    this._step     = 'mode';    // 'mode' | 'opponent' | 'relation' | 'teamSize' | 'netlobby'
     this._relation = null;      // 'with' | 'against'
     this._teamSize = null;      // number
+    this._netRelation = 'with'; // online lobby: 'with' (co-op) | 'against' (pvp)
 
     this._navDir   = 0;
     this._navTimer = 0;
@@ -83,6 +84,7 @@ export class MainMenu {
       if      (this._step === 'opponent') this._step = 'mode';
       else if (this._step === 'relation') this._step = 'opponent';
       else if (this._step === 'teamSize') this._step = 'relation';
+      else if (this._step === 'netlobby') { this.game.net?.shutdown(); this._step = 'opponent'; }
     }
   }
 
@@ -154,6 +156,7 @@ export class MainMenu {
     else if (this._step === 'opponent') this._drawOpponent(ctx, W, H, cx);
     else if (this._step === 'relation') this._drawRelation(ctx, W, H, cx);
     else if (this._step === 'teamSize') this._drawTeamSize(ctx, W, H, cx);
+    else if (this._step === 'netlobby') this._drawNetLobby(ctx, W, H, cx);
 
     // Footer hint.
     ctx.font = `10px ${MONO}`;
@@ -241,11 +244,105 @@ export class MainMenu {
     }
     ctx.font = `10px ${MONO}`;
     ctx.fillStyle = '#6b7361';
-    ctx.fillText('Play with or against a friend — configure your squad', cx, y + cardH - 14);
+    ctx.fillText('Local squad config — fight AI with or against a friend slot', cx, y + cardH - 14);
 
-    y += cardH + 40;
+    y += cardH + 20;
+
+    if (MainMenu.button(ctx, game, this.buttons, 'online', cx - cardW / 2, y, cardW, cardH, '🌐  ONLINE — PLAY WITH FRIENDS', true)) {
+      this._step = 'netlobby';
+    }
+    ctx.font = `10px ${MONO}`;
+    ctx.fillStyle = '#6b7361';
+    ctx.fillText('Real friends over the internet — host a room or join a code', cx, y + cardH - 14);
+
+    y += cardH + 30;
     if (MainMenu.button(ctx, game, this.buttons, 'back', cx - 80, y, 160, 38, '◀ BACK')) {
       this._step = 'mode';
+    }
+  }
+
+  // Online lobby: host a room (share the code) or join a friend's code.
+  _drawNetLobby(ctx, W, H, cx) {
+    const game = this.game;
+    const net = game.net;
+    const cardW = Math.min(480, W - 60);
+    let y = H * 0.33;
+
+    ctx.font = `bold 15px ${MONO}`;
+    ctx.fillStyle = '#e8e2cf';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('PLAY WITH FRIENDS — ONLINE', cx, y - 28);
+
+    const status = net ? net.status : 'idle';
+
+    // Idle / error: choose co-op vs pvp, then host or join.
+    if (status === 'idle' || status === 'error') {
+      // Relation toggle.
+      const half = cardW / 2 - 6;
+      if (MainMenu.button(ctx, game, this.buttons, 'rel_with', cx - cardW / 2, y, half, 40,
+          '🤝 CO-OP', this._netRelation === 'with')) this._netRelation = 'with';
+      if (MainMenu.button(ctx, game, this.buttons, 'rel_against', cx + 6, y, half, 40,
+          '⚔️ PvP', this._netRelation === 'against')) this._netRelation = 'against';
+      y += 56;
+
+      if (MainMenu.button(ctx, game, this.buttons, 'host', cx - cardW / 2, y, cardW, 56, '🛰  HOST GAME', true)) {
+        net?.host(this._netRelation);
+      }
+      y += 66;
+      if (MainMenu.button(ctx, game, this.buttons, 'join', cx - cardW / 2, y, cardW, 56, '🔌  JOIN GAME')) {
+        const code = (typeof window !== 'undefined' && window.prompt)
+          ? window.prompt("Enter your friend's room code:") : '';
+        if (code && code.trim()) net?.join(code, this._netRelation);
+      }
+      y += 70;
+
+      if (status === 'error') {
+        ctx.font = `11px ${MONO}`;
+        ctx.fillStyle = '#e04f33';
+        ctx.fillText('⚠ ' + (net.error || 'Connection failed'), cx, y);
+        y += 22;
+      }
+    } else if (net.role === 'host') {
+      // Hosting: show the code + connection state.
+      ctx.font = `11px ${MONO}`;
+      ctx.fillStyle = '#8d957f';
+      ctx.fillText(status === 'loading' ? 'Starting room…' : 'YOUR ROOM CODE — share it with your friend', cx, y - 4);
+      y += 26;
+
+      ctx.font = `bold 52px ${MONO}`;
+      ctx.fillStyle = '#d65c32';
+      ctx.fillText(net.roomCode || '·····', cx, y + 16);
+      y += 56;
+
+      ctx.font = `12px ${MONO}`;
+      ctx.fillStyle = net.connected ? '#5db84a' : '#d6a13c';
+      ctx.fillText(net.connected
+        ? `✓ ${net.conns.length} friend(s) connected`
+        : 'Waiting for a friend to join…', cx, y);
+      y += 30;
+
+      const canStart = net.connected;
+      if (MainMenu.button(ctx, game, this.buttons, 'deploy', cx - cardW / 2, y, cardW, 52,
+          canStart ? '▶ DEPLOY' : 'WAITING FOR FRIEND…', canStart)) {
+        if (canStart) net.beginMatch(this.selected);
+      }
+      y += 64;
+    } else {
+      // Client: connecting / connected, waiting for host.
+      ctx.font = `13px ${MONO}`;
+      ctx.fillStyle = '#8d957f';
+      const txt = status === 'connecting' || status === 'loading'
+        ? `Connecting to ${net.roomCode || ''}…`
+        : '✓ Connected — waiting for host to start…';
+      ctx.fillText(txt, cx, y + 6);
+      y += 40;
+    }
+
+    y += 14;
+    if (MainMenu.button(ctx, game, this.buttons, 'back', cx - 80, y, 160, 38, '◀ BACK')) {
+      net?.shutdown();
+      this._step = 'opponent';
     }
   }
 
