@@ -31,7 +31,8 @@ export class InputManager {
         this.keys.add(e.code);
         this.pressed.add(e.code);
       }
-      if (PREVENT_DEFAULT.has(e.code)) e.preventDefault();
+      // Never block browser shortcuts that use Cmd/Ctrl (e.g. Cmd+Shift+R to force-refresh).
+      if (PREVENT_DEFAULT.has(e.code) && !e.metaKey && !e.ctrlKey) e.preventDefault();
     });
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
     window.addEventListener('blur', () => this.keys.clear());
