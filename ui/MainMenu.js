@@ -28,9 +28,11 @@ export class MainMenu {
     this._relation = null;      // 'with' | 'against'
     this._teamSize = null;      // number
     this._netRelation = 'with'; // online lobby: 'with' (co-op) | 'against' (pvp)
+    this._stepFrame = 0;        // frame counter when step last changed — blocks same-frame clicks
 
     this._navDir   = 0;
     this._navTimer = 0;
+    this._stepBlockUntil = 0; // real-time timestamp (ms) after which clicks are allowed
   }
 
   /** Shared: draw a button, register its rect, return true when clicked. */
@@ -57,6 +59,8 @@ export class MainMenu {
     const game  = this.game;
     const input = game.input;
 
+    this._stepFrame++;
+
     if (this._step === 'mode') {
       const wantDown = input.isDown('ArrowDown');
       const wantUp   = input.isDown('ArrowUp');
@@ -75,17 +79,23 @@ export class MainMenu {
       }
 
       if (input.wasPressed('Enter') || input.wasPressed('NumpadEnter')) {
-        this._step = 'opponent';
+        this._goStep('opponent');
       }
     }
 
     // Escape goes back one step.
     if (input.wasPressed('Escape')) {
-      if      (this._step === 'opponent') this._step = 'mode';
-      else if (this._step === 'relation') this._step = 'opponent';
-      else if (this._step === 'teamSize') this._step = 'relation';
-      else if (this._step === 'netlobby') { this.game.net?.shutdown(); this._step = 'opponent'; }
+      if      (this._step === 'opponent') this._goStep('mode');
+      else if (this._step === 'relation') this._goStep('opponent');
+      else if (this._step === 'teamSize') this._goStep('relation');
+      else if (this._step === 'netlobby') { this.game.net?.shutdown(); this._goStep('opponent'); }
     }
+  }
+
+  _goStep(s) {
+    this._step = s;
+    this._stepChanged = this._stepFrame;
+    this._stepBlockUntil = performance.now() + 180; // block clicks for 180ms after any step change
   }
 
   _navStep(dir) {
@@ -151,12 +161,22 @@ export class MainMenu {
     // Step breadcrumb.
     this._drawBreadcrumb(ctx, W, H, cx);
 
+    // Block button clicks for a short window after any step change. Frame-based
+    // guards aren't enough — some browsers fire a synthetic mousedown from Enter
+    // that lands on the next screen's first button.
+    const blockClicks = performance.now() < this._stepBlockUntil;
+    const mouse = game.input.mouse;
+    const savedLeft = mouse.leftPressed;
+    if (blockClicks) mouse.leftPressed = false;
+
     // Route to active step.
     if      (this._step === 'mode')     this._drawMode(ctx, W, H, cx);
     else if (this._step === 'opponent') this._drawOpponent(ctx, W, H, cx);
     else if (this._step === 'relation') this._drawRelation(ctx, W, H, cx);
     else if (this._step === 'teamSize') this._drawTeamSize(ctx, W, H, cx);
     else if (this._step === 'netlobby') this._drawNetLobby(ctx, W, H, cx);
+
+    if (blockClicks) mouse.leftPressed = savedLeft;
 
     // Footer hint.
     ctx.font = `10px ${MONO}`;
@@ -213,7 +233,7 @@ export class MainMenu {
       game.state = 'loadout';
     }
     if (MainMenu.button(ctx, game, this.buttons, 'next', cx + 6, y, half, 48, 'NEXT ▶', true)) {
-      this._step = 'opponent';
+      this._goStep('opponent');
     }
   }
 
@@ -240,7 +260,7 @@ export class MainMenu {
     y += cardH + 20;
 
     if (MainMenu.button(ctx, game, this.buttons, 'human', cx - cardW / 2, y, cardW, cardH, '👥  WITH SOMEONE', true)) {
-      this._step = 'relation';
+      this._goStep('relation');
     }
     ctx.font = `10px ${MONO}`;
     ctx.fillStyle = '#6b7361';
@@ -249,7 +269,7 @@ export class MainMenu {
     y += cardH + 20;
 
     if (MainMenu.button(ctx, game, this.buttons, 'online', cx - cardW / 2, y, cardW, cardH, '🌐  ONLINE — PLAY WITH FRIENDS', true)) {
-      this._step = 'netlobby';
+      this._goStep('netlobby');
     }
     ctx.font = `10px ${MONO}`;
     ctx.fillStyle = '#6b7361';
@@ -257,7 +277,7 @@ export class MainMenu {
 
     y += cardH + 30;
     if (MainMenu.button(ctx, game, this.buttons, 'back', cx - 80, y, 160, 38, '◀ BACK')) {
-      this._step = 'mode';
+      this._goStep('mode');
     }
   }
 
@@ -342,7 +362,7 @@ export class MainMenu {
     y += 14;
     if (MainMenu.button(ctx, game, this.buttons, 'back', cx - 80, y, 160, 38, '◀ BACK')) {
       net?.shutdown();
-      this._step = 'opponent';
+      this._goStep('opponent');
     }
   }
 
@@ -361,7 +381,7 @@ export class MainMenu {
 
     if (MainMenu.button(ctx, game, this.buttons, 'with', cx - cardW / 2, y, cardW, cardH, '🤝  WITH YOUR FRIEND', false)) {
       this._relation = 'with';
-      this._step = 'teamSize';
+      this._goStep('teamSize');
     }
     ctx.font = `10px ${MONO}`;
     ctx.fillStyle = '#6b7361';
@@ -371,7 +391,7 @@ export class MainMenu {
 
     if (MainMenu.button(ctx, game, this.buttons, 'against', cx - cardW / 2, y, cardW, cardH, '⚔️  AGAINST YOUR FRIEND', true)) {
       this._relation = 'against';
-      this._step = 'teamSize';
+      this._goStep('teamSize');
     }
     ctx.font = `10px ${MONO}`;
     ctx.fillStyle = '#6b7361';
@@ -379,7 +399,7 @@ export class MainMenu {
 
     y += cardH + 40;
     if (MainMenu.button(ctx, game, this.buttons, 'back', cx - 80, y, 160, 38, '◀ BACK')) {
-      this._step = 'opponent';
+      this._goStep('opponent');
     }
   }
 
@@ -434,7 +454,7 @@ export class MainMenu {
 
     y += 18;
     if (MainMenu.button(ctx, game, this.buttons, 'back', cx - cardW / 2, y, cardW / 2 - 6, 44, '◀ BACK')) {
-      this._step = 'relation';
+      this._goStep('relation');
       this._teamSize = null;
     }
 
