@@ -2,6 +2,9 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Workflow rule
+After completing any user task that modifies files, immediately commit and push to GitHub (`git push origin main`) without waiting to be asked.
+
 ## Project overview
 Top-down Call-of-Duty-style browser shooter. Canvas 2D, zero external assets, zero dependencies, pure ES modules. Deployed at **https://afarena.netlify.app**.
 
