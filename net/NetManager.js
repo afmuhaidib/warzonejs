@@ -98,6 +98,7 @@ export class NetManager {
     this.error = null;
     try {
       const Peer = await loadPeerJS();
+      if (this.status !== 'loading') return; // aborted (user hit BACK) while awaiting
       this.roomCode = randomCode();
       this.peer = new Peer(ID_PREFIX + this.roomCode);
       this._wirePeer();
@@ -117,6 +118,7 @@ export class NetManager {
     this.roomCode = (code || '').trim().toUpperCase();
     try {
       const Peer = await loadPeerJS();
+      if (this.status !== 'connecting') return; // aborted while awaiting
       this.peer = new Peer();
       this._wirePeer();
       this.peer.on('open', () => {
@@ -132,12 +134,14 @@ export class NetManager {
 
   _wirePeer() {
     this.peer.on('error', (e) => {
-      // A bad/expired code surfaces as 'peer-unavailable'.
-      this._fail(new Error(e?.type === 'peer-unavailable'
-        ? 'Room not found — check the code'
-        : (e?.type || 'connection error')));
+      // 'peer-unavailable' = bad/expired join code. 'unavailable-id' = room code
+      // collision on the public broker (rare). Both are user-recoverable.
+      const msg = e?.type === 'peer-unavailable' ? 'Room not found — check the code'
+                : e?.type === 'unavailable-id'   ? 'Room code taken — try hosting again'
+                : (e?.type || 'connection error');
+      this._fail(new Error(msg));
     });
-    this.peer.on('disconnected', () => { try { this.peer.reconnect(); } catch { /* ignore */ } });
+    this.peer.on('disconnected', () => { try { this.peer?.reconnect(); } catch { /* ignore */ } });
   }
 
   _addConn(conn) {
@@ -164,6 +168,8 @@ export class NetManager {
   _fail(e) {
     this.error = e?.message || String(e);
     this.status = 'error';
+    try { this.peer?.destroy(); } catch { /* ignore */ }
+    this.peer = null;
   }
 
   // ───────────────────────────────────────────────────── match lifecycle
