@@ -12,6 +12,8 @@ const STATE_COLORS = {
   suppress: '#e04f33',
   flank: '#c878e8',
   retreat: '#78a0e8',
+  decoy: '#f0c030',
+  ambush: '#30d080',
 };
 
 export class EnemyRenderer {

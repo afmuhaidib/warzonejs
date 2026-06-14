@@ -15,6 +15,8 @@ import { Engage } from './behaviors/Engage.js';
 import { Suppress } from './behaviors/Suppress.js';
 import { Flank } from './behaviors/Flank.js';
 import { Retreat, shouldRetreat } from './behaviors/Retreat.js';
+import { Decoy } from './behaviors/Decoy.js';
+import { Ambush } from './behaviors/Ambush.js';
 import { makePersonality } from './Personality.js';
 import { angleDiff, normalizeAngle, gaussian, clamp, choice } from '../utils/MathUtils.js';
 
@@ -37,6 +39,9 @@ const BARKS = {
   retreat: ['Falling back!', 'Pulling out!', 'Regroup!'],
   pinned: ['Taking fire!', "I'm pinned!", 'Heads down!'],
   avenge: ['You\'re dead!', 'Push him!', 'For the squad!'],
+  decoyExpose: ['I see him!', 'Over here!', 'He\'s over here!'],
+  decoyFleeing: ['Falling back!', 'I\'m hit!', 'Cover me!'],
+  ambushOpen: ['Now!', 'Light him up!', 'Take the shot!'],
 };
 
 const inCombat = (e) =>
@@ -49,6 +54,8 @@ const TREE = new Selector([
     new Selector([
       new Sequence([new Condition((e) => e.bb.role === 'suppress'), Suppress()]),
       new Sequence([new Condition((e) => e.bb.role === 'flank'), Flank()]),
+      new Sequence([new Condition((e) => e.bb.role === 'decoy'), Decoy()]),
+      new Sequence([new Condition((e) => e.bb.role === 'ambush'), Ambush()]),
       Engage(),
     ]),
   ]),
@@ -116,6 +123,13 @@ export class Enemy {
       avengeUntil: 0,       // morale: temporary aggression spike after a squad loss
       bark: null,           // current combat callout text (rendered above head)
       barkTimer: 0,         // remaining display time for the bark
+      // Bait & ambush
+      decoyTimer: 0,        // time spent in the expose / escape phases
+      decoyRunPoint: null,  // crossing point chosen during expose phase
+      decoyEscapeTarget: null, // escape destination (shared by coordinator)
+      ambushPos: null,      // side position to reach before holding fire
+      ambushFired: false,   // set true when trigger conditions fire
+      ambushWaitTimer: 0,   // patience timer while holding at ambush position
     };
     this.hitByPlayer = false;     // assist tracking (XPSystem)
     this.lastHitExplosive = false; // 'demolition' challenge tagging
@@ -305,6 +319,7 @@ export class Enemy {
       }
     }
 
+    game.events.emit('enemy:damaged', { enemy: this, by: attacker });
     if (this.health <= 0) this.die(game, attacker);
   }
 
