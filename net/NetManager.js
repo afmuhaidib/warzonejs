@@ -32,7 +32,7 @@ const STALE_MS   = 6000;                    // drop a peer we haven't heard from
 // PeerJS signaling server. The free public broker (0.peerjs.com) was shut down.
 // Deploy peerserver/ to Render.com (free) and set this to your service URL.
 // e.g. 'https://your-app.onrender.com'
-const PEER_SERVER_URL = 'https://warzonejs-peer.onrender.com';
+const PEER_SERVER_URL = 'https://warzonejs-peer.onrender.com/peerjs';
 
 function _parsePeerHost(url) {
   try {
