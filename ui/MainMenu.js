@@ -549,16 +549,17 @@ export class MainMenu {
       const isSel = this._duration === min;
       if (this._btn(ctx, `dur_${min}`, bx, y, btnW, 56, label, isSel)) {
         this._duration = min;
+        this._focusId = 'deploy'; // jump focus to DEPLOY after picking duration
       }
       bx += btnW + 10;
     }
 
     y += 80;
-    if (this._duration !== null) {
+    {
       ctx.font = `11px ${MONO}`;
       ctx.fillStyle = '#d65c32';
       ctx.fillText(
-        this._duration === null ? 'Match runs until kill limit' : `Match ends after ${this._duration} minutes`,
+        this._duration === null ? 'No time limit' : `Match ends after ${this._duration} minutes`,
         cx, y,
       );
       y += 22;
@@ -569,7 +570,6 @@ export class MainMenu {
     if (this._btn(ctx, 'back', cx - cardW / 2, y, cardW / 2 - 6, 44, '◀ BACK')) {
       this._goStep(backStep);
     }
-    const canDeploy = this._duration !== undefined; // always true (null = unlimited is valid)
     if (this._btn(ctx, 'deploy', cx + 6, y, cardW / 2 - 6, 44, '▶ DEPLOY', true)) {
       if (this._relation) this._deployMultiplayer();
       else this._deploy();
