@@ -24,9 +24,10 @@ export class MainMenu {
     this.buttons  = [];
 
     // Multiplayer flow state.
-    this._step     = 'mode';    // 'mode' | 'opponent' | 'relation' | 'teamSize' | 'netlobby'
+    this._step     = 'mode';    // 'mode' | 'opponent' | 'relation' | 'teamSize' | 'duration' | 'netlobby'
     this._relation = null;      // 'with' | 'against'
     this._teamSize = null;      // number
+    this._duration = null;      // minutes, null = unlimited
     this._netRelation = 'with'; // online lobby: 'with' (co-op) | 'against' (pvp)
     this._stepFrame = 0;        // frame counter when step last changed — blocks same-frame clicks
 
@@ -129,6 +130,7 @@ export class MainMenu {
       if      (this._step === 'opponent') this._goStep('mode');
       else if (this._step === 'relation') this._goStep('opponent');
       else if (this._step === 'teamSize') this._goStep('relation');
+      else if (this._step === 'duration') this._goStep(this._relation ? 'teamSize' : 'opponent');
       else if (this._step === 'netlobby') { this.game.net?.shutdown(); this._goStep('opponent'); }
     }
 
@@ -168,12 +170,12 @@ export class MainMenu {
 
   _deploy() {
     const game = this.game;
-    // Attach multiplayer config so GameModeManager / future network layer can read it.
     game.multiplayerConfig = {
       type:           'npc',
       relation:       null,
       teamSize:       null,
       coopFriendlies: null,
+      duration:       this._duration,   // minutes, null = unlimited
     };
     game.modes.start(this.selected);
   }
@@ -184,10 +186,10 @@ export class MainMenu {
     // to override the default friendly count for co-op sessions.
     game.multiplayerConfig = {
       type:           'human',
-      relation:       this._relation,   // 'with' | 'against'
-      teamSize:       this._teamSize,   // number
-      // Co-op: spawn (teamSize - 1) friendly AIs alongside the human player.
+      relation:       this._relation,
+      teamSize:       this._teamSize,
       coopFriendlies: this._relation === 'with' ? this._teamSize - 1 : null,
+      duration:       this._duration,   // minutes, null = unlimited
     };
     game.modes.start(this.selected);
   }
@@ -235,6 +237,7 @@ export class MainMenu {
     else if (this._step === 'opponent') this._drawOpponent(ctx, W, H, cx);
     else if (this._step === 'relation') this._drawRelation(ctx, W, H, cx);
     else if (this._step === 'teamSize') this._drawTeamSize(ctx, W, H, cx);
+    else if (this._step === 'duration') this._drawDuration(ctx, W, H, cx);
     else if (this._step === 'netlobby') this._drawNetLobby(ctx, W, H, cx);
 
     if (blockClicks) { mouse.leftPressed = savedLeft; this._enterPressed = savedEnter; }
@@ -246,8 +249,8 @@ export class MainMenu {
   }
 
   _drawBreadcrumb(ctx, W, H, cx) {
-    const steps = ['MODE', 'OPPONENT', 'SETUP', 'DEPLOY'];
-    const active = { mode: 0, opponent: 1, relation: 2, teamSize: 3 }[this._step];
+    const steps = ['MODE', 'OPPONENT', 'SETUP', 'DURATION', 'DEPLOY'];
+    const active = { mode: 0, opponent: 1, relation: 2, teamSize: 3, duration: 3 }[this._step];
     ctx.font = `10px ${MONO}`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -312,11 +315,12 @@ export class MainMenu {
     ctx.fillText('WHO ARE YOU PLAYING WITH?', cx, y - 28);
 
     if (this._btn(ctx, 'npc', cx - cardW / 2, y, cardW, cardH, '🤖  VS NPCs', false)) {
-      this._deploy();
+      this._relation = null;
+      this._goStep('duration');
     }
     ctx.font = `10px ${MONO}`;
     ctx.fillStyle = '#6b7361';
-    ctx.fillText('Solo run against AI enemies — starts immediately', cx, y + cardH - 14);
+    ctx.fillText('Solo run against AI enemies', cx, y + cardH - 14);
 
     y += cardH + 20;
 
@@ -519,12 +523,56 @@ export class MainMenu {
       this._teamSize = null;
     }
 
-    const canDeploy = this._teamSize !== null;
-    if (this._btn(ctx, 'deploy',
-      cx + 6, y, cardW / 2 - 6, 44,
-      canDeploy ? '▶ DEPLOY' : 'SELECT SIZE',
-      canDeploy)) {
-      if (canDeploy) this._deployMultiplayer();
+    const canNext = this._teamSize !== null;
+    if (this._btn(ctx, 'next', cx + 6, y, cardW / 2 - 6, 44, canNext ? 'NEXT ▶' : 'SELECT SIZE', canNext)) {
+      if (canNext) this._goStep('duration');
+    }
+  }
+
+  // Step: choose match duration.
+  _drawDuration(ctx, W, H, cx) {
+    const cardW = Math.min(480, W - 60);
+    let y = H * 0.33;
+
+    ctx.font = `bold 15px ${MONO}`;
+    ctx.fillStyle = '#e8e2cf';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('MATCH DURATION', cx, y - 28);
+
+    const OPTIONS = [5, 10, 15, 20, 30, null]; // null = unlimited
+    const btnW = Math.min(130, (cardW - (OPTIONS.length - 1) * 10) / OPTIONS.length);
+    const totalRowW = OPTIONS.length * btnW + (OPTIONS.length - 1) * 10;
+    let bx = cx - totalRowW / 2;
+    for (const min of OPTIONS) {
+      const label = min === null ? '∞  NO LIMIT' : `${min} MIN`;
+      const isSel = this._duration === min;
+      if (this._btn(ctx, `dur_${min}`, bx, y, btnW, 56, label, isSel)) {
+        this._duration = min;
+      }
+      bx += btnW + 10;
+    }
+
+    y += 80;
+    if (this._duration !== null) {
+      ctx.font = `11px ${MONO}`;
+      ctx.fillStyle = '#d65c32';
+      ctx.fillText(
+        this._duration === null ? 'Match runs until kill limit' : `Match ends after ${this._duration} minutes`,
+        cx, y,
+      );
+      y += 22;
+    }
+
+    y += 16;
+    const backStep = this._relation ? 'teamSize' : 'opponent';
+    if (this._btn(ctx, 'back', cx - cardW / 2, y, cardW / 2 - 6, 44, '◀ BACK')) {
+      this._goStep(backStep);
+    }
+    const canDeploy = this._duration !== undefined; // always true (null = unlimited is valid)
+    if (this._btn(ctx, 'deploy', cx + 6, y, cardW / 2 - 6, 44, '▶ DEPLOY', true)) {
+      if (this._relation) this._deployMultiplayer();
+      else this._deploy();
     }
   }
 }

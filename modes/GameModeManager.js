@@ -26,6 +26,8 @@ export class GameModeManager {
     this.modeId = def.id;
     this.matchTime = 0;
     this.ended = false;
+    const cfg = game.multiplayerConfig;
+    this.timeLimit = (cfg?.duration != null) ? cfg.duration * 60 : null; // seconds, null = no limit
 
     // Reset match-scoped state.
     const game = this.game;
@@ -65,7 +67,10 @@ export class GameModeManager {
     this.matchTime += dt;
     this.mode.update(dt);
     const result = this.mode.result; // null | {won, headline}
-    if (result) this.end(result);
+    if (result) { this.end(result); return; }
+    if (this.timeLimit !== null && this.matchTime >= this.timeLimit) {
+      this.end({ won: true, headline: 'TIME UP' });
+    }
   }
 
   end(result) {
