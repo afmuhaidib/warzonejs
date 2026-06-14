@@ -75,12 +75,6 @@ export class PlayerController {
     const wasSprinting = player.sprinting;
     player.sprinting = wantSprint && (!movement || movement.stamina.canSprint);
 
-    // Sprinting interrupts a reload — but only on the rising edge (the frame the
-    // sprint actually starts). Cancelling every frame meant a reload begun while
-    // walking got silently nuked over and over as stamina flickered sprint on/off,
-    // so the mag never filled. Now a held reload survives normal movement.
-    const weapon = this.game.weapons.current;
-    if (player.sprinting && !wasSprinting && weapon && weapon.reloading) weapon.cancelReload();
 
     let speed = player.crouching ? CROUCH_SPEED : player.sprinting ? SPRINT_SPEED : WALK_SPEED;
     if (movement) speed = Math.min(speed, movement.prone.speedCap);
