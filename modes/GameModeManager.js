@@ -26,11 +26,10 @@ export class GameModeManager {
     this.modeId = def.id;
     this.matchTime = 0;
     this.ended = false;
-    const cfg = game.multiplayerConfig;
-    this.timeLimit = (cfg?.duration != null) ? cfg.duration * 60 : null; // seconds, null = no limit
-
     // Reset match-scoped state.
     const game = this.game;
+    const cfg = game.multiplayerConfig;
+    this.timeLimit = (cfg?.duration != null) ? cfg.duration * 60 : null;
     game.ffaMode = false; // cleared here; FFA constructor sets it true if needed
     game.player.score = 0;
     game.player.kills = 0;
