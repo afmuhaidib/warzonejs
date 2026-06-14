@@ -33,39 +33,55 @@ export class MainMenu {
     this._navDir   = 0;
     this._navTimer = 0;
     this._stepBlockUntil = 0; // real-time timestamp (ms) after which clicks are allowed
+
+    this._focusId  = null;     // keyboard-focused button id
+    this._enterPressed = false; // consumed per-frame
   }
 
-  /** Shared: draw a button, register its rect, return true when clicked. */
-  static button(ctx, game, list, id, x, y, w, h, label, accent = false) {
+  /** Shared: draw a button, register its rect, return true when clicked or keyboard-activated. */
+  static button(ctx, game, list, id, x, y, w, h, label, accent = false, focusId = null) {
     const m = game.input.mouse;
     const hover = m.x >= x && m.x <= x + w && m.y >= y && m.y <= y + h;
-    ctx.fillStyle = hover ? 'rgba(214, 92, 50, 0.25)' : 'rgba(8, 12, 8, 0.75)';
+    const focused = focusId === id;
+    const active = hover || focused;
+    ctx.fillStyle = active ? 'rgba(214, 92, 50, 0.25)' : 'rgba(8, 12, 8, 0.75)';
     ctx.fillRect(x, y, w, h);
-    ctx.strokeStyle = accent ? '#d65c32' : hover ? '#d65c32' : 'rgba(141, 149, 127, 0.5)';
-    ctx.lineWidth = accent ? 2 : 1;
+    ctx.strokeStyle = active ? '#d65c32' : accent ? '#d65c32' : 'rgba(141, 149, 127, 0.5)';
+    ctx.lineWidth = focused ? 2 : accent ? 2 : 1;
     ctx.strokeRect(x, y, w, h);
+    if (focused) {
+      ctx.save();
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 3]);
+      ctx.strokeRect(x + 3, y + 3, w - 6, h - 6);
+      ctx.setLineDash([]);
+      ctx.restore();
+    }
     ctx.font = `bold 14px ${MONO}`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillStyle = hover || accent ? '#e8e2cf' : '#aab39a';
+    ctx.fillStyle = active || accent ? '#e8e2cf' : '#aab39a';
     ctx.fillText(label, x + w / 2, y + h / 2);
     list.push({ id, x, y, w, h });
     return hover && m.leftPressed;
   }
 
-  // ─── keyboard navigation (mode step only) ────────────────────────────────
+  // ─── keyboard navigation ─────────────────────────────────────────────────
 
   update(dt) {
     const game  = this.game;
     const input = game.input;
 
     this._stepFrame++;
+    this._enterPressed = false;
+
+    const wantDown = input.isDown('ArrowDown')  || input.isDown('ArrowRight');
+    const wantUp   = input.isDown('ArrowUp')    || input.isDown('ArrowLeft');
+    const dir = wantDown ? 1 : wantUp ? -1 : 0;
 
     if (this._step === 'mode') {
-      const wantDown = input.isDown('ArrowDown');
-      const wantUp   = input.isDown('ArrowUp');
-      const dir = wantDown ? 1 : wantUp ? -1 : 0;
-
+      // Mode step: arrows cycle through MODES list.
       if (dir !== this._navDir) {
         this._navDir   = dir;
         this._navTimer = dir !== 0 ? -NAV_INITIAL_DELAY : 0;
@@ -81,6 +97,31 @@ export class MainMenu {
       if (input.wasPressed('Enter') || input.wasPressed('NumpadEnter')) {
         this._goStep('opponent');
       }
+    } else {
+      // All other steps: arrows move through the registered buttons list.
+      const btns = this.buttons.filter((b) => b.id !== 'back'); // keep back reachable but at end
+      const backBtn = this.buttons.find((b) => b.id === 'back');
+      const navList = backBtn ? [...btns, backBtn] : btns;
+
+      if (navList.length > 0) {
+        if (this._focusId === null) this._focusId = navList[0].id;
+
+        if (dir !== this._navDir) {
+          this._navDir   = dir;
+          this._navTimer = dir !== 0 ? -NAV_INITIAL_DELAY : 0;
+          if (dir !== 0) this._navFocus(dir, navList);
+        } else if (dir !== 0) {
+          this._navTimer += dt;
+          if (this._navTimer >= NAV_REPEAT_RATE) {
+            this._navTimer -= NAV_REPEAT_RATE;
+            this._navFocus(dir, navList);
+          }
+        }
+      }
+
+      if (input.wasPressed('Enter') || input.wasPressed('NumpadEnter')) {
+        this._enterPressed = true;
+      }
     }
 
     // Escape goes back one step.
@@ -90,18 +131,37 @@ export class MainMenu {
       else if (this._step === 'teamSize') this._goStep('relation');
       else if (this._step === 'netlobby') { this.game.net?.shutdown(); this._goStep('opponent'); }
     }
+
+    // Mouse movement clears keyboard focus so hover takes over.
+    const m = game.input.mouse;
+    if (m.x !== this._lastMX || m.y !== this._lastMY) { this._focusId = null; }
+    this._lastMX = m.x; this._lastMY = m.y;
+  }
+
+  _navFocus(dir, list) {
+    const idx = list.findIndex((b) => b.id === this._focusId);
+    const next = (idx + dir + list.length) % list.length;
+    this._focusId = list[next].id;
   }
 
   _goStep(s) {
     this._step = s;
     this._stepChanged = this._stepFrame;
     this._stepBlockUntil = performance.now() + 180; // block clicks for 180ms after any step change
+    this._focusId = null;
+    this._navDir  = 0;
   }
 
   _navStep(dir) {
     const idx  = MODES.findIndex((m) => m.id === this.selected);
     const base = idx === -1 ? 0 : idx;
     this.selected = MODES[(base + dir + MODES.length) % MODES.length].id;
+  }
+
+  /** Instance wrapper: passes focusId so keyboard focus highlights + Enter activates. */
+  _btn(ctx, id, x, y, w, h, label, accent = false) {
+    const clicked = MainMenu.button(ctx, this.game, this.buttons, id, x, y, w, h, label, accent, this._focusId);
+    return clicked || (this._enterPressed && this._focusId === id);
   }
 
   // ─── deploy ──────────────────────────────────────────────────────────────
@@ -167,7 +227,8 @@ export class MainMenu {
     const blockClicks = performance.now() < this._stepBlockUntil;
     const mouse = game.input.mouse;
     const savedLeft = mouse.leftPressed;
-    if (blockClicks) mouse.leftPressed = false;
+    const savedEnter = this._enterPressed;
+    if (blockClicks) { mouse.leftPressed = false; this._enterPressed = false; }
 
     // Route to active step.
     if      (this._step === 'mode')     this._drawMode(ctx, W, H, cx);
@@ -176,7 +237,7 @@ export class MainMenu {
     else if (this._step === 'teamSize') this._drawTeamSize(ctx, W, H, cx);
     else if (this._step === 'netlobby') this._drawNetLobby(ctx, W, H, cx);
 
-    if (blockClicks) mouse.leftPressed = savedLeft;
+    if (blockClicks) { mouse.leftPressed = savedLeft; this._enterPressed = savedEnter; }
 
     // Footer hint.
     ctx.font = `10px ${MONO}`;
@@ -217,7 +278,7 @@ export class MainMenu {
 
     for (const m of MODES) {
       const isSel = this.selected === m.id;
-      if (MainMenu.button(ctx, game, this.buttons, m.id, cx - cardW / 2, y, cardW, 46,
+      if (this._btn(ctx, m.id, cx - cardW / 2, y, cardW, 46,
         `${isSel ? '▸ ' : ''}${m.name}`, isSel)) {
         this.selected = m.id;
       }
@@ -229,10 +290,10 @@ export class MainMenu {
 
     y += 14;
     const half = cardW / 2 - 6;
-    if (MainMenu.button(ctx, game, this.buttons, 'loadout', cx - cardW / 2, y, half, 48, 'LOADOUT')) {
+    if (this._btn(ctx, 'loadout', cx - cardW / 2, y, half, 48, 'LOADOUT')) {
       game.state = 'loadout';
     }
-    if (MainMenu.button(ctx, game, this.buttons, 'next', cx + 6, y, half, 48, 'NEXT ▶', true)) {
+    if (this._btn(ctx, 'next', cx + 6, y, half, 48, 'NEXT ▶', true)) {
       this._goStep('opponent');
     }
   }
@@ -250,7 +311,7 @@ export class MainMenu {
     ctx.textBaseline = 'middle';
     ctx.fillText('WHO ARE YOU PLAYING WITH?', cx, y - 28);
 
-    if (MainMenu.button(ctx, game, this.buttons, 'npc', cx - cardW / 2, y, cardW, cardH, '🤖  VS NPCs', false)) {
+    if (this._btn(ctx, 'npc', cx - cardW / 2, y, cardW, cardH, '🤖  VS NPCs', false)) {
       this._deploy();
     }
     ctx.font = `10px ${MONO}`;
@@ -259,7 +320,7 @@ export class MainMenu {
 
     y += cardH + 20;
 
-    if (MainMenu.button(ctx, game, this.buttons, 'human', cx - cardW / 2, y, cardW, cardH, '👥  WITH SOMEONE', true)) {
+    if (this._btn(ctx, 'human', cx - cardW / 2, y, cardW, cardH, '👥  WITH SOMEONE', true)) {
       this._goStep('relation');
     }
     ctx.font = `10px ${MONO}`;
@@ -268,7 +329,7 @@ export class MainMenu {
 
     y += cardH + 20;
 
-    if (MainMenu.button(ctx, game, this.buttons, 'online', cx - cardW / 2, y, cardW, cardH, '🌐  ONLINE — PLAY WITH FRIENDS', true)) {
+    if (this._btn(ctx, 'online', cx - cardW / 2, y, cardW, cardH, '🌐  ONLINE — PLAY WITH FRIENDS', true)) {
       this._goStep('netlobby');
     }
     ctx.font = `10px ${MONO}`;
@@ -276,7 +337,7 @@ export class MainMenu {
     ctx.fillText('Real friends over the internet — host a room or join a code', cx, y + cardH - 14);
 
     y += cardH + 30;
-    if (MainMenu.button(ctx, game, this.buttons, 'back', cx - 80, y, 160, 38, '◀ BACK')) {
+    if (this._btn(ctx, 'back', cx - 80, y, 160, 38, '◀ BACK')) {
       this._goStep('mode');
     }
   }
@@ -300,17 +361,17 @@ export class MainMenu {
     if (status === 'idle' || status === 'error') {
       // Relation toggle.
       const half = cardW / 2 - 6;
-      if (MainMenu.button(ctx, game, this.buttons, 'rel_with', cx - cardW / 2, y, half, 40,
+      if (this._btn(ctx, 'rel_with', cx - cardW / 2, y, half, 40,
           '🤝 CO-OP', this._netRelation === 'with')) this._netRelation = 'with';
-      if (MainMenu.button(ctx, game, this.buttons, 'rel_against', cx + 6, y, half, 40,
+      if (this._btn(ctx, 'rel_against', cx + 6, y, half, 40,
           '⚔️ PvP', this._netRelation === 'against')) this._netRelation = 'against';
       y += 56;
 
-      if (MainMenu.button(ctx, game, this.buttons, 'host', cx - cardW / 2, y, cardW, 56, '🛰  HOST GAME', true)) {
+      if (this._btn(ctx, 'host', cx - cardW / 2, y, cardW, 56, '🛰  HOST GAME', true)) {
         net?.host(this._netRelation);
       }
       y += 66;
-      if (MainMenu.button(ctx, game, this.buttons, 'join', cx - cardW / 2, y, cardW, 56, '🔌  JOIN GAME')) {
+      if (this._btn(ctx, 'join', cx - cardW / 2, y, cardW, 56, '🔌  JOIN GAME')) {
         const code = (typeof window !== 'undefined' && window.prompt)
           ? window.prompt("Enter your friend's room code:") : '';
         if (code && code.trim()) net?.join(code, this._netRelation);
@@ -343,7 +404,7 @@ export class MainMenu {
       y += 30;
 
       const canStart = net.connected;
-      if (MainMenu.button(ctx, game, this.buttons, 'deploy', cx - cardW / 2, y, cardW, 52,
+      if (this._btn(ctx, 'deploy', cx - cardW / 2, y, cardW, 52,
           canStart ? '▶ DEPLOY' : 'WAITING FOR FRIEND…', canStart)) {
         if (canStart) net.beginMatch(this.selected);
       }
@@ -360,7 +421,7 @@ export class MainMenu {
     }
 
     y += 14;
-    if (MainMenu.button(ctx, game, this.buttons, 'back', cx - 80, y, 160, 38, '◀ BACK')) {
+    if (this._btn(ctx, 'back', cx - 80, y, 160, 38, '◀ BACK')) {
       net?.shutdown();
       this._goStep('opponent');
     }
@@ -379,7 +440,7 @@ export class MainMenu {
     ctx.textBaseline = 'middle';
     ctx.fillText('HOW ARE YOU PLAYING?', cx, y - 28);
 
-    if (MainMenu.button(ctx, game, this.buttons, 'with', cx - cardW / 2, y, cardW, cardH, '🤝  WITH YOUR FRIEND', false)) {
+    if (this._btn(ctx, 'with', cx - cardW / 2, y, cardW, cardH, '🤝  WITH YOUR FRIEND', false)) {
       this._relation = 'with';
       this._goStep('teamSize');
     }
@@ -389,7 +450,7 @@ export class MainMenu {
 
     y += cardH + 20;
 
-    if (MainMenu.button(ctx, game, this.buttons, 'against', cx - cardW / 2, y, cardW, cardH, '⚔️  AGAINST YOUR FRIEND', true)) {
+    if (this._btn(ctx, 'against', cx - cardW / 2, y, cardW, cardH, '⚔️  AGAINST YOUR FRIEND', true)) {
       this._relation = 'against';
       this._goStep('teamSize');
     }
@@ -398,7 +459,7 @@ export class MainMenu {
     ctx.fillText('PvP — face off in teams on the same map', cx, y + cardH - 14);
 
     y += cardH + 40;
-    if (MainMenu.button(ctx, game, this.buttons, 'back', cx - 80, y, 160, 38, '◀ BACK')) {
+    if (this._btn(ctx, 'back', cx - 80, y, 160, 38, '◀ BACK')) {
       this._goStep('opponent');
     }
   }
@@ -434,7 +495,7 @@ export class MainMenu {
     for (const sz of sizes) {
       const label = isWith ? `${sz} players` : `${sz}v${sz}`;
       const isSelected = this._teamSize === sz;
-      if (MainMenu.button(ctx, game, this.buttons, `sz_${sz}`, bx, y, btnW, 56, label, isSelected)) {
+      if (this._btn(ctx, `sz_${sz}`, bx, y, btnW, 56, label, isSelected)) {
         this._teamSize = sz;
       }
       bx += btnW + 12;
@@ -453,13 +514,13 @@ export class MainMenu {
     }
 
     y += 18;
-    if (MainMenu.button(ctx, game, this.buttons, 'back', cx - cardW / 2, y, cardW / 2 - 6, 44, '◀ BACK')) {
+    if (this._btn(ctx, 'back', cx - cardW / 2, y, cardW / 2 - 6, 44, '◀ BACK')) {
       this._goStep('relation');
       this._teamSize = null;
     }
 
     const canDeploy = this._teamSize !== null;
-    if (MainMenu.button(ctx, game, this.buttons, 'deploy',
+    if (this._btn(ctx, 'deploy',
       cx + 6, y, cardW / 2 - 6, 44,
       canDeploy ? '▶ DEPLOY' : 'SELECT SIZE',
       canDeploy)) {
