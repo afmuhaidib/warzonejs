@@ -14,6 +14,12 @@ cd warzoneJS && python3 -m http.server 8000
 # Deploy to production — must run from warzoneJS/, not the parent cod/ folder
 cd warzoneJS && netlify deploy --prod
 # No build step. netlify.toml sets publish = "."
+
+# Auto-deploy: pushing to main on GitHub triggers Netlify automatically.
+# GitHub repo : https://github.com/afmuhaidib/warzonejs
+# Netlify site: https://afarena.netlify.app (admin: https://app.netlify.com/projects/afarena)
+# GitHub webhook id 641381423 → https://api.netlify.com/hooks/github
+# Netlify deploy key id: 6a2e7dc0a5cda1f080c3c877 (read-only, registered on GitHub)
 ```
 
 **In-game debug:** Press **F1** for the AI debug overlay (vision cones, paths, states, squad roles, personalities, suppression). `window.__game` is exposed on localhost only.
