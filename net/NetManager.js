@@ -29,6 +29,26 @@ const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no ambiguous chars
 const SEND_HZ    = 20;
 const STALE_MS   = 6000;                    // drop a peer we haven't heard from
 
+// PeerJS signaling server. The free public broker (0.peerjs.com) was shut down.
+// Deploy peerserver/ to Render.com (free) and set this to your service URL.
+// e.g. 'https://your-app.onrender.com'
+const PEER_SERVER_URL = 'https://warzonejs-peer.onrender.com';
+
+function _parsePeerHost(url) {
+  try {
+    const u = new URL(url);
+    return {
+      host: u.hostname,
+      port: u.port ? Number(u.port) : (u.protocol === 'https:' ? 443 : 80),
+      path: u.pathname.replace(/\/$/, '') || '/',
+      secure: u.protocol === 'https:',
+    };
+  } catch {
+    // fallback — let PeerJS use its own default (will likely fail, but shows a clear error)
+    return {};
+  }
+}
+
 let _peerLib = null;
 
 /** Lazy-load the PeerJS UMD bundle (exposes window.Peer). */
@@ -100,7 +120,7 @@ export class NetManager {
       const Peer = await loadPeerJS();
       if (this.status !== 'loading') return; // aborted (user hit BACK) while awaiting
       this.roomCode = randomCode();
-      this.peer = new Peer(ID_PREFIX + this.roomCode);
+      this.peer = new Peer(ID_PREFIX + this.roomCode, _parsePeerHost(PEER_SERVER_URL));
       this._wirePeer();
       this.peer.on('open', () => { this.status = 'hosting'; });
       this.peer.on('connection', (conn) => this._addConn(conn));
@@ -119,7 +139,7 @@ export class NetManager {
     try {
       const Peer = await loadPeerJS();
       if (this.status !== 'connecting') return; // aborted while awaiting
-      this.peer = new Peer();
+      this.peer = new Peer(undefined, _parsePeerHost(PEER_SERVER_URL));
       this._wirePeer();
       this.peer.on('open', () => {
         // Reliable + ordered: the 'start' handshake must not be dropped. State
@@ -138,7 +158,9 @@ export class NetManager {
       // collision on the public broker (rare). Both are user-recoverable.
       const msg = e?.type === 'peer-unavailable' ? 'Room not found — check the code'
                 : e?.type === 'unavailable-id'   ? 'Room code taken — try hosting again'
-                : (e?.type || 'connection error');
+                : e?.type === 'server-error'     ? 'Signaling server unreachable — check PEER_SERVER_URL in NetManager.js'
+                : e?.type === 'network'          ? 'Network error — check your connection'
+                : (e?.type || e?.message || 'connection error');
       this._fail(new Error(msg));
     });
     this.peer.on('disconnected', () => { try { this.peer?.reconnect(); } catch { /* ignore */ } });
