@@ -1,2 +1,8 @@
 # Local Netlify folder
 .netlify
+
+# Claude Code local config (personal machine settings, not shared)
+.claude/settings.local.json
+
+# Node
+node_modules/

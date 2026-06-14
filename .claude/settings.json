@@ -1,0 +1,35 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -m http.server *)",
+      "Bash(netlify deploy*)",
+      "Bash(git status)",
+      "Bash(git log*)",
+      "Bash(git diff*)",
+      "Bash(git add*)",
+      "Bash(git commit*)",
+      "Bash(git push*)",
+      "Bash(git pull*)",
+      "Bash(git branch*)",
+      "Bash(git checkout*)",
+      "Bash(git stash*)",
+      "Bash(ls*)",
+      "Bash(find . *)",
+      "Bash(grep *)"
+    ],
+    "deny": []
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd /Users/af/Desktop/cod && git diff --quiet && git diff --cached --quiet || (git add -A && git commit -m 'auto: save changes' && git push)"
+          }
+        ]
+      }
+    ]
+  }
+}

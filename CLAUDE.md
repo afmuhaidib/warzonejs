@@ -8,11 +8,11 @@ Top-down Call-of-Duty-style browser shooter. Canvas 2D, zero external assets, ze
 ## Commands
 ```bash
 # Run locally — ES modules require an HTTP origin, can't open index.html directly
-cd warzoneJS && python3 -m http.server 8000
+python3 -m http.server 8000
 # open http://localhost:8000
 
-# Deploy to production — must run from warzoneJS/, not the parent cod/ folder
-cd warzoneJS && netlify deploy --prod
+# Deploy to production
+netlify deploy --prod
 # No build step. netlify.toml sets publish = "."
 
 # Auto-deploy: pushing to main on GitHub triggers Netlify automatically.
